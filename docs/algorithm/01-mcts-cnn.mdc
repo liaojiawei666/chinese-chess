@@ -1,0 +1,954 @@
+---
+alwaysApply: true
+---
+
+# 基于 MCTS + CNN 的中国象棋人机对战核心算法
+
+本文参考 AlphaZero 类方法，描述一个适用于中国象棋的核心算法设计。整体思想是：
+
+```text
+神经网络负责直觉判断：当前局面好不好，哪些走法值得考虑。
+MCTS 负责局部计算：在当前局面下反复搜索，得到更可靠的走法分布。
+自我对弈负责产生数据：用搜索后的棋局训练下一代神经网络。
+```
+
+整体流程如下：
+
+```mermaid
+flowchart TD
+    A[当前棋盘局面] --> B[统一为当前走棋方视角]
+    B --> C[CNN 神经网络]
+    C --> D[Policy: 每个动作的先验概率]
+    C --> E[Value: 当前方胜负倾向]
+    D --> F[MCTS 搜索]
+    E --> F
+    F --> G[得到搜索后的动作概率 pi]
+    G --> H[选择下一步]
+    H --> I[执行走法并继续对局]
+    I --> J{对局结束?}
+    J -- 否 --> A
+    J -- 是 --> K[保存局面 pi 最终结果 z]
+    K --> L[训练 policy/value 网络]
+```
+
+## 1. 红黑方共用一个网络
+
+红黑方不需要训练两个网络。推荐使用一个共享网络：
+
+$$
+f_\theta(s) = (p, v)
+$$
+
+其中：
+
+- $f_\theta$：参数为 $\theta$ 的神经网络。
+- $s$：当前走棋方视角下的局面。
+- $p$：policy，网络预测的动作概率分布。
+- $v$：value，网络预测的当前方胜负倾向。
+
+其中 $v$ 永远表示当前走棋方最终赢棋的倾向，与红黑无关。
+
+训练 value head 时使用的真实结果标签 $z$ 定义为：
+
+$$
+z =
+\begin{cases}
++1, & \text{当前走棋方最终获胜} \\
+0, & \text{最终和棋} \\
+-1, & \text{当前走棋方最终失败}
+\end{cases}
+$$
+
+即 $z$ 是从样本所属走棋方视角看到的最终对局结果。
+
+为了让红黑方共用网络，输入局面需要统一成“当前走棋方视角”。例如：
+
+```text
+如果轮到红方：
+    按正常棋盘输入。
+
+如果轮到黑方：
+    将棋盘上下翻转。
+    将红黑棋子通道交换。
+```
+
+这样网络看到的永远是：
+
+```text
+己方棋子
+对方棋子
+轮到己方走
+```
+
+而不是固定判断“红方更好”或“黑方更好”。
+
+示意图：
+
+```mermaid
+flowchart LR
+    A[红方走棋局面] --> C[当前方视角编码]
+    B[黑方走棋局面] --> D[翻转棋盘 + 交换红黑通道]
+    D --> C
+    C --> E[共享 CNN 网络]
+    E --> F[policy]
+    E --> G[value]
+```
+
+## 2. 神经网络结构设计
+
+中国象棋棋盘是 `10 x 9`。可以将棋盘编码成多通道张量：
+
+$$
+s \in \mathbb{R}^{C \times 10 \times 9}
+$$
+
+其中：
+
+- $C$：输入通道数。
+- $10$：棋盘行数。
+- $9$：棋盘列数。
+- $s$：当前走棋方视角下的局面张量。
+
+一种简单通道设计：
+
+```text
+己方：帅、车、马、炮、仕、相、兵  -> 7 个通道
+对方：将、车、马、炮、士、象、卒  -> 7 个通道
+历史局面或重复信息                  -> 若干通道
+当前规则状态                         -> 若干通道
+```
+
+基础 CNN 结构：
+
+```mermaid
+flowchart TD
+    A[输入 C x 10 x 9] --> B[Conv + BN + ReLU]
+    B --> C[Residual Block x N]
+    C --> D[共享特征图]
+    D --> E[Policy Head]
+    D --> F[Value Head]
+    E --> G[动作 logits]
+    F --> H[-1 到 1 的 value]
+```
+
+推荐结构：
+
+```text
+Trunk:
+    Conv2d(C, hidden, kernel=3, padding=1)
+    BatchNorm
+    ReLU
+    ResidualBlock x N
+
+Policy Head:
+    Conv2d(hidden, policy_hidden, kernel=1)
+    BatchNorm
+    ReLU
+    Linear(policy_hidden * 10 * 9, action_space_size)
+
+Value Head:
+    Conv2d(hidden, value_hidden, kernel=1)
+    BatchNorm
+    ReLU
+    Linear(value_hidden * 10 * 9, hidden_value)
+    ReLU
+    Linear(hidden_value, 1)
+    Tanh
+```
+
+`Tanh` 用来限制 value 输出范围：
+
+$$
+v \in [-1, 1]
+$$
+
+其中 `v` 越接近 `+1`，表示当前方越可能获胜；越接近 `-1`，表示当前方越可能失败。
+
+## 3. Policy 计算与下一步选择
+
+虽然每个局面的合法走法不同，但网络输出必须是固定长度。因此需要设计一个固定动作空间。
+
+最直接的动作编码是：
+
+```text
+from_square -> to_square
+```
+
+棋盘共有：
+
+$$
+|\mathcal{S}_{board}| = 10 \times 9 = 90
+$$
+
+其中 $\mathcal{S}_{board}$ 表示棋盘上的所有落点集合。
+
+所以动作空间大小可以定义为：
+
+$$
+|\mathcal{A}| = 90 \times 90 = 8100
+$$
+
+其中 $\mathcal{A}$ 表示固定动作空间。即使某个局面只有几十个合法走法，网络也始终输出 `8100` 维动作 logits。
+
+动作编号：
+
+$$
+i_{from} = 9y_{from} + x_{from}
+$$
+
+$$
+i_{to} = 9y_{to} + x_{to}
+$$
+
+$$
+a = 90i_{from} + i_{to}
+$$
+
+其中：
+
+- $(x_{from}, y_{from})$：起点坐标。
+- $(x_{to}, y_{to})$：终点坐标。
+- $i_{from}$：起点在 $90$ 个棋盘点中的编号。
+- $i_{to}$：终点在 $90$ 个棋盘点中的编号。
+- $a$：固定动作空间中的 `action_id`。
+
+神经网络输出包括两部分：
+
+- $l \in \mathbb{R}^{8100}$：对应固定动作空间 $\mathcal{A}$ 的原始 policy logits。
+- $v \in \mathbb{R}$：标量 value，取值范围 $[-1, 1]$。
+
+当前局面只允许合法走法参与 softmax：
+
+$$
+\tilde{l}_a =
+\begin{cases}
+l_a, & a \in \mathcal{A}_{legal}(s) \\
+-\infty, & a \notin \mathcal{A}_{legal}(s)
+\end{cases}
+$$
+
+$$
+p_a = \frac{\exp(\tilde{l}_a)}{\sum_{b \in \mathcal{A}} \exp(\tilde{l}_b)}
+$$
+
+其中：
+
+- $l_a$：网络对动作 $a$ 输出的原始 `logit`。
+- $\tilde{l}_a$：屏蔽非法动作后的 `logit`。
+- $\mathcal{A}_{legal}(s)$：局面 $s$ 下的合法动作集合。
+- $p_a$：网络最终给动作 $a$ 的概率。
+
+示意：
+
+```mermaid
+flowchart TD
+    A[网络输出 8100 个 logits] --> B[规则引擎生成合法走法]
+    B --> C[生成 legal_move_mask]
+    A --> D[屏蔽非法动作]
+    C --> D
+    D --> E[softmax]
+    E --> F[合法走法概率 p]
+```
+
+实战选棋时不要直接使用网络 policy 最大的动作，而是通过 MCTS 得到搜索后的动作分布：
+
+$$
+\pi(a \mid s_0) =
+\frac{N(s_0, a)}
+{\sum_{b \in \mathcal{A}_{legal}(s_0)} N(s_0, b)}
+$$
+
+其中：
+
+- $s_0$：当前搜索根节点局面。
+- $N(s_0, a)$：根节点动作 $a$ 被 MCTS 访问的次数。
+- $\pi(a \mid s_0)$：MCTS 搜索后得到的动作目标概率。
+
+选择下一步时：
+
+```text
+训练开局阶段：按 pi 采样，增加探索。
+训练后期或实战：选择访问次数最高的动作。
+```
+
+可写成：
+
+$$
+\pi_\tau(a \mid s_0) =
+\frac{N(s_0, a)^{1/\tau}}
+{\sum_b N(s_0, b)^{1/\tau}}
+$$
+
+$$
+a^* =
+\arg\max_a N(s_0, a), \quad \tau \to 0
+$$
+
+其中：
+
+- $\tau$：温度参数。
+- $\tau$ 较大：选择更随机，探索更多。
+- $\tau \to 0$：选择访问次数最多的动作。
+- $a^*$：最终选择的动作。
+
+## 4. MCTS 搜索与节点更新
+
+每个 MCTS 节点表示一个局面。节点中的每个动作边记录：
+
+```text
+P(s, a): 神经网络给出的先验概率
+N(s, a): 访问次数
+W(s, a): 累计价值
+Q(s, a): 平均价值
+```
+
+平均价值定义为：
+
+$$
+Q(s, a) =
+\frac{W(s, a)}{N(s, a)}
+$$
+
+其中：
+
+- $s$：一个搜索树节点对应的局面。
+- $a$：从局面 $s$ 出发的一个合法动作。
+- $P(s, a)$：网络 policy 给出的先验概率。
+- $N(s, a)$：该动作边被访问的次数。
+- $W(s, a)$：该动作边累计回传的 value 总和。
+- $Q(s, a)$：该动作边的平均价值。
+
+一次 MCTS 模拟包含四步：
+
+```text
+Selection  选择
+Expansion  展开
+Evaluation 评估
+Backup     回传
+```
+
+流程图：
+
+```mermaid
+flowchart TD
+    A[根节点 s0] --> B[初始化本次模拟路径 path = 空]
+    B --> C{当前节点是否已展开且非终局?}
+    C -- 是 --> D[按 PUCT 选择动作 a]
+    D --> E[把边 s,a 追加到 path]
+    E --> F{子节点是否已存在?}
+    F -- 是 --> G[进入已保存的子节点]
+    F -- 否 --> H[执行动作生成新局面并创建子节点]
+    H --> G
+    G --> C
+    C -- 否 --> I{当前节点是否终局?}
+    I -- 是 --> J[用搜索中遇到的终局结果得到 v_leaf]
+    I -- 否 --> K[调用网络得到 p 和 v_leaf]
+    K --> L[用合法动作和 p 展开当前节点]
+    J --> M[沿 path 反向回传 v_leaf]
+    L --> M
+    M --> N[更新 path 上每条边的 N/W/Q]
+```
+
+这里容易混淆的一点是：模拟时不是只计算一个叶节点价值就结束，而是要同时维护“搜索树”和“本次模拟路径”。
+
+更准确地说，MCTS 里通常同时维护两类数据：
+
+- 搜索树中长期保存的节点/边：每个已展开节点会保存它的合法子动作，以及每条边上的 $P(s,a)$、$N(s,a)$、$W(s,a)$、$Q(s,a)$。后续模拟再次走到同一个局面时，会复用这些已经保存的子节点/边。
+- 单次模拟中临时保存的路径：从根节点开始，每选择一个动作 $a$ 并进入子节点，就把这条边 $(s,a)$ 记录到 `path` 里。到达叶节点并得到价值 $v$ 后，Backup 会沿着这条 `path` 反向更新每条边的 $N/W/Q$。
+
+因此，“访问过的子节点”需要保存，但分两层理解：已经展开过的子节点会留在搜索树里，当前这次模拟实际走过的节点/边还要额外放进路径里，供回传阶段更新。
+
+注意，MCTS 中有两种不同的“结果”，不能混为一谈：
+
+- $v_{leaf}$：一次 MCTS 模拟到达叶节点后得到的值。若叶节点是终局，$v_{leaf}$ 来自这个搜索分支的真实终局；若叶节点不是终局，$v_{leaf}$ 来自神经网络估计。
+- $z_{game}$：真实自我对弈中，双方真的一步一步落子直到整盘棋结束后得到的最终胜负。它用于训练 value loss。
+
+因此，搜索中遇到终局节点时，确实会用该终局结果回传本次模拟；但训练样本里的 $z$ 不是“某次 MCTS 搜索遇到的终局”，而是“真实执行落子后的整盘自我对弈结果”。
+
+选择动作时常用 PUCT 公式：
+
+$$
+a^* =
+\arg\max_{a \in \mathcal{A}_{legal}(s)}
+\left(
+Q(s, a) + U(s, a)
+\right)
+$$
+
+其中：
+
+$$
+U(s, a) =
+c_{puct}
+P(s, a)
+\frac{\sqrt{\sum_b N(s, b)}}{1 + N(s, a)}
+$$
+
+含义：
+
+- $Q(s, a)$：目前搜索认为动作 $a$ 有多好。
+- $U(s, a)$：动作 $a$ 的探索奖励。
+- $P(s, a)$：神经网络认为动作 $a$ 的先验概率。
+- $c_{puct}$：控制探索强度的超参数。
+- $\sum_b N(s, b)$：当前节点 $s$ 下所有动作的总访问次数。
+
+到达叶节点 $s_{leaf}$ 后：
+
+- 若 $s_{leaf}$ 是终局：直接使用真实胜负作为本次模拟的价值，$v = z(s_{leaf})$。
+- 若 $s_{leaf}$ 非终局：调用神经网络得到 $(p, v) = f_\theta(s_{leaf})$，并用 $p$ 初始化叶节点所有合法动作边的先验，$P(s_{leaf}, a) = p_a, \forall a \in \mathcal{A}_{legal}(s_{leaf})$。
+
+更精确地写：
+
+$$
+v_{leaf} =
+\begin{cases}
+z(s_{leaf}), & s_{leaf} \text{ 是终局} \\
+f_\theta^{value}(s_{leaf}), & s_{leaf} \text{ 不是终局}
+\end{cases}
+$$
+
+其中：
+
+- $v_{leaf}$：本次 MCTS 模拟要回传的叶节点价值。
+- $z(s_{leaf})$：搜索过程中遇到终局叶节点时，从叶节点当前方视角计算出的胜负结果。
+- $f_\theta^{value}(s_{leaf})$：神经网络 value head 对非终局叶节点的估计。
+
+回传时从叶节点一路更新到根节点：
+
+$$
+N(s, a) \leftarrow N(s, a) + 1
+$$
+
+$$
+W(s, a) \leftarrow W(s, a) + v
+$$
+
+$$
+Q(s, a) \leftarrow \frac{W(s, a)}{N(s, a)}
+$$
+
+$$
+v \leftarrow -v
+$$
+
+其中：
+
+- $v$：从叶节点得到并向上回传的价值。
+- $N(s,a) \leftarrow N(s,a)+1$：表示边 $(s,a)$ 又被访问了一次。
+- $W(s,a) \leftarrow W(s,a)+v$：累加本次模拟得到的价值。
+- $Q(s,a) \leftarrow W(s,a)/N(s,a)$：用累计价值除以访问次数得到平均价值。
+- $v \leftarrow -v$：切换到上一层节点的对手视角。
+
+回传时执行 $v \leftarrow -v$ 的原因是中国象棋是零和游戏：对当前方有利的局面 $v > 0$，对其父节点（即对手视角）就是 $-v < 0$。
+
+## 5. 损失函数计算
+
+一条训练样本是一个三元组 $(s, \pi, z_{game})$：
+
+- $s$：当前走棋方视角下的局面张量，$s \in \mathbb{R}^{C \times 10 \times 9}$。
+- $\pi$：MCTS 在 $s$ 上得到的动作访问分布，$\pi \in \mathbb{R}^{|\mathcal{A}|}$。
+- $z_{game}$：真实自我对弈整盘棋结束后的最终结果，从样本所属走棋方视角定义，$z_{game} \in \{-1, 0, +1\}$。
+
+网络输出：
+
+$$
+(p, v) = f_\theta(s)
+$$
+
+其中：
+
+- $p$：网络预测的动作概率分布，对应 policy head，$p \in \mathbb{R}^{|\mathcal{A}|}$。
+- $v$：网络预测的胜负倾向，对应 value head，$v \in [-1, 1]$。
+
+总损失：
+
+$$
+\mathcal{L} =
+\mathcal{L}_{value}
++ \mathcal{L}_{policy}
++ \mathcal{L}_{reg}
+$$
+
+常见写法：
+
+$$
+\mathcal{L}(\theta) =
+(z_{game} - v)^2
+- \sum_{a \in \mathcal{A}} \pi(a \mid s)\log p(a \mid s)
++ \lambda \lVert \theta \rVert_2^2
+$$
+
+其中：
+
+- $\theta$：神经网络参数。
+- $s$：当前走棋方视角下的训练局面。
+- $z_{game}$：真实自我对弈整盘棋结束后的胜负结果，从当前走棋方视角定义。
+- $v$：网络预测的 value。
+- $\pi(a \mid s)$：MCTS 搜索得到的动作访问分布。
+- $p(a \mid s)$：网络 policy head 输出的动作概率。
+- $\lambda$：L2 正则化系数。
+
+分别解释：
+
+$$
+\mathcal{L}_{value} = (z_{game} - v)^2
+$$
+
+让网络学会判断真实对局最终会赢、输还是和。这里的监督信号来自自我对弈整盘棋的最终结果，不来自某一次 MCTS 模拟的临时叶节点估值。
+
+$$
+\mathcal{L}_{policy}
+=
+- \sum_{a \in \mathcal{A}} \pi(a \mid s)\log p(a \mid s)
+$$
+
+让网络输出的动作概率接近 MCTS 搜索后的动作分布。
+
+$$
+\mathcal{L}_{reg} =
+\lambda \lVert \theta \rVert_2^2
+$$
+
+限制参数过大，减少过拟合。
+
+注意：
+
+- $p$ 的训练目标是 MCTS 搜索得到的访问分布 $\pi$，而不是 MCTS 中任何 $Q(s, a)$。
+- $v$ 的训练目标是整盘棋的真实结果 $z_{game}$，而不是 MCTS 搜索过程中的临时 $Q(s, a)$、$v_{leaf}$ 或根节点平均价值。
+- 不要把 MCTS 的临时统计量误用为训练标签。
+
+## 6. 自我对弈训练流程
+
+训练由“自我对弈”和“网络更新”循环组成。
+
+```mermaid
+flowchart TD
+    A[当前模型] --> B[自我对弈生成棋局]
+    B --> C[每步用 MCTS 选择动作]
+    C --> D[保存 state, pi, player]
+    D --> E{对局结束}
+    E --> F[根据胜负生成 z]
+    F --> G[写入训练样本池]
+    G --> H[采样 mini-batch]
+    H --> I[训练 policy/value 网络]
+    I --> J[得到新模型]
+    J --> K{是否通过评估?}
+    K -- 是 --> A
+    K -- 否 --> H
+```
+
+### 6.1 推荐超参数与训练规模
+
+下面给出三个阶段的推荐配置：Stage A 用来调通流程，Stage B 用来训练出能下棋的模型，Stage C 用来训练出有一定棋力的模型。每个阶段都给出明确的具体值，而不是范围。
+
+#### 6.1.1 网络与算法超参数
+
+```yaml
+network:
+  input_channels: 18              # 己方7 + 对方7 + 当前方颜色1 + 历史3
+  hidden_channels: 128
+  residual_blocks: 6
+  policy_action_size: 8100
+  value_range: [-1, 1]
+  policy_head_hidden: 32          # policy head 中间通道
+  value_head_hidden: 64           # value head 中间通道
+  value_fc_hidden: 128            # value head 全连接隐藏维度
+
+mcts:
+  simulations_per_move: 400       # Stage A 用 200,Stage C 用 800
+  c_puct: 1.5
+  dirichlet_epsilon: 0.25
+  dirichlet_alpha: 0.3
+  temperature_opening: 1.0
+  temperature_late: 0.0           # 0 表示取访问次数最大值
+  temperature_switch_ply: 30      # 第 30 手起切到 temperature_late
+  virtual_loss: 1.0               # 并行 MCTS 时使用
+  fpu_reduction: 0.25             # 未访问动作的 First-Play Urgency 修正
+
+self_play:
+  parallel_workers: 4             # 自我对弈进程数
+  games_per_iteration: 200        # Stage A: 50, Stage C: 1000
+  max_plies_per_game: 300
+  no_capture_plies_to_draw: 80
+  repetition_count_to_draw: 3
+  resign_threshold: -0.95         # value 低于此值若干步后认输
+  resign_consecutive_steps: 8
+
+training:
+  optimizer: SGD
+  momentum: 0.9
+  batch_size: 256
+  learning_rate: 0.01             # 100 轮迭代后衰减为 0.001,300 轮再衰减为 0.0001
+  weight_decay_lambda: 0.0001
+  gradient_clip_norm: 1.0
+  train_steps_per_iteration: 1000 # Stage A: 500, Stage C: 4000
+  replay_buffer_positions: 500000
+  replay_buffer_window_iterations: 20  # 仅采样最近 20 轮的 shard
+
+evaluation:
+  evaluation_games: 40            # Stage A: 20, Stage C: 100
+  evaluation_simulations: 400
+  evaluation_temperature: 0.0
+  evaluation_dirichlet_epsilon: 0.0  # 评估时关闭噪声
+  replace_model_win_rate: 0.55
+  evaluation_interval_iterations: 1
+```
+
+关键参数解释：
+
+- $n_{sim} = 400$：每步 MCTS 模拟次数。Stage A 取 $200$ 节省时间;Stage C 取 $800$ 提升棋力。
+- $c_{puct} = 1.5$:PUCT 探索系数。
+- $\epsilon = 0.25$、$\alpha = 0.3$:根节点 Dirichlet 噪声参数。
+- $\tau$:选招温度。前 $30$ 手用 $\tau = 1.0$ 采样,之后用 $\tau = 0$ 取访问次数最大。
+- $\lambda = 10^{-4}$:L2 正则化系数。
+- $B = 256$:训练 batch size。
+- 学习率使用阶梯衰减:第 $0$ 至 $100$ 轮用 $0.01$,$100$ 至 $300$ 轮用 $0.001$,$300$ 轮以后用 $0.0001$。
+
+#### 6.1.2 三个阶段的训练规模
+
+第 $k$ 轮训练迭代可以形式化为:
+
+$$
+I_k = \left( G_k,\ S_k,\ T_k,\ E_k \right)
+$$
+
+其中:
+
+- $G_k$:第 $k$ 轮生成的自我对弈棋局数量。
+- $S_k$:这些棋局产生的局面样本数量,经验上一盘约 $80 \sim 150$ 步。
+- $T_k$:第 $k$ 轮网络训练步数。
+- $E_k$:第 $k$ 轮新旧模型评估对局数量。
+
+三个阶段的具体设定:
+
+| 阶段 | 目标 | $n_{sim}$ | $G_k$ | $T_k$ | $E_k$ | 总迭代数 $K$ | 总对局数 | 估计耗时(单 RTX 4090) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Stage A | 跑通闭环、验证 loss 能下降 | 200 | 50 | 500 | 20 | 30 | 1500 | 约 8 小时 |
+| Stage B | 训练出能正常下棋的模型 | 400 | 200 | 1000 | 40 | 200 | 40000 | 约 7 天 |
+| Stage C | 训练出明显有棋力的模型 | 800 | 1000 | 4000 | 100 | 1000 | 1000000 | 约 30 至 60 天 |
+
+每盘自我对弈样本数估计:
+
+$$
+S_k \approx G_k \times \bar{L}, \quad \bar{L} \in [80, 150]
+$$
+
+其中 $\bar{L}$ 是一盘棋的平均步数(ply)。例如 Stage B 单轮约产生 $200 \times 100 = 20000$ 个样本,$200$ 轮共产生约 $4 \times 10^6$ 个样本,这就是 replay buffer 容量需要 $5 \times 10^5$ 同时保留 $20$ 轮窗口的依据。
+
+总训练量直观估计:
+
+$$
+\text{Stage B 总样本量} \approx 200 \times 200 \times 100 = 4 \times 10^6
+$$
+
+$$
+\text{Stage C 总样本量} \approx 1000 \times 1000 \times 100 = 10^8
+$$
+
+#### 6.1.3 训练监控指标
+
+这些值是工程起步值,不是理论最优值。真正训练时应重点观察:
+
+- $\mathcal{L}_{value}$ 是否单调下降。
+- $\mathcal{L}_{policy}$ 是否单调下降。
+- 自我对弈平均步数 $\bar{L}$ 是否异常拉长(常见于 value 训练不稳定)。
+- 和棋率是否异常升高(常见于探索不足或终局判定缺失)。
+- 新模型对旧模型的胜率 $w$ 是否高于 $0.55$。
+- replay buffer 中各模型版本的样本占比,避免单一版本数据主导。
+
+一盘自我对弈伪代码：
+
+```text
+game_history = []
+state = initial_position()
+
+while not game_over(state):
+    canonical_state = to_current_player_view(state)
+    root = run_mcts(canonical_state, model)
+    pi = visit_counts_to_policy(root)
+    action = select_action(pi, temperature)
+
+    game_history.append({
+        state: canonical_state,
+        pi: pi,
+        player: current_player(state),
+    })
+
+    state = apply_action(state, action)
+
+result = final_result(state)
+
+for sample in game_history:
+    sample.z = result_from_sample_player_view(result, sample.player)
+    replay_buffer.add(sample)
+```
+
+### 6.2 MCTS 搜索树的存储与复用
+
+MCTS 的搜索树不建议长期保存成一棵不断增长的全局大树。更合理的做法是：每盘棋、每一步只维护当前根节点附近的局部搜索树；真正落盘保存的是训练样本 $(s,\pi,z)$，而不是整棵 MCTS 树。
+
+原因是 MCTS 树的统计量依赖当前模型 $f_\theta$。模型更新后，旧树中的 $P(s,a)$、$Q(s,a)$、$N(s,a)$ 都不再完全可信。因此搜索树主要是运行时缓存，用完即可释放。
+
+#### 6.2.1 节点和边的内存结构
+
+每个节点表示一个局面 $s$，每条边表示一个合法动作 $a$。不要为 $8100$ 个动作都分配空间，只保存当前局面的合法动作。
+
+推荐结构：
+
+```text
+MCTSNode:
+    state_hash: uint64
+    player_to_move: int8
+    expanded: bool
+    terminal: bool
+    legal_actions: int32[m]
+    priors: float32[m]        # P(s,a)
+    visits: int32[m]          # N(s,a)
+    value_sums: float32[m]    # W(s,a)
+    child_indices: int32[m]   # 子节点下标,没有则为 -1
+
+MCTSTree:
+    nodes: array[MCTSNode]
+    root_index: int32
+    max_nodes: int32
+```
+
+其中 $m = |\mathcal{A}_{legal}(s)|$，通常只有几十到一百多个，远小于 $|\mathcal{A}|=8100$。平均价值 $Q(s,a)$ 不一定单独存储，可以按需计算：
+
+$$
+Q(s,a) =
+\begin{cases}
+\frac{W(s,a)}{N(s,a)}, & N(s,a) > 0 \\
+0, & N(s,a) = 0
+\end{cases}
+$$
+
+这样节点中真正占空间的是合法动作数组，而不是完整动作空间。
+
+#### 6.2.2 使用哈希定位局面
+
+为了快速判断一个局面是否已经在树中出现，可以给局面计算 Zobrist hash：
+
+$$
+h(s) = \operatorname{Zobrist}(board,\ player,\ rule\_state)
+$$
+
+其中 $rule\_state$ 至少应包含：
+
+- 当前走棋方。
+- 连续未吃子步数。
+- 重复局面计数相关信息。
+- 是否处于将军、长将、长捉等会影响合法性的规则状态。
+
+如果暂时不想处理路径相关规则，可以先把 MCTS 实现为严格的树：同一个棋盘即使从不同路径到达，也创建不同节点。这样实现更简单，缺点是不能复用换位局面。
+
+如果要做换位表，则可维护：
+
+```text
+node_table: hash -> node_index
+```
+
+查找逻辑：
+
+```text
+next_state = apply_action(state, action)
+h = zobrist_hash(next_state)
+
+if h in node_table:
+    child_index = node_table[h]
+else:
+    child_index = create_node(next_state)
+    node_table[h] = child_index
+```
+
+需要注意：中国象棋的重复、长将、长捉规则和路径有关。若 $h(s)$ 只包含棋盘子力分布而不包含规则状态，可能把两个规则含义不同的局面误认为同一个节点。
+
+#### 6.2.3 根节点推进与树裁剪
+
+每走出一步棋后，不应该保留整棵旧树。应该把实际走到的子节点提升为新根节点，只保留这个子树，其余兄弟分支全部释放：
+
+```text
+root = current_root
+action = selected_action
+new_root = root.child(action)
+
+discard_all_nodes_except_subtree(new_root)
+tree.root_index = new_root
+```
+
+这个策略叫 subtree reuse。它能复用刚刚搜索过的后续局面，同时避免树随着整盘棋无限增长。
+
+空间上可以设置硬上限：
+
+```yaml
+mcts_tree:
+  max_nodes_per_search: 50000
+  reuse_subtree_after_move: true
+  clear_tree_after_game: true
+  use_transposition_table: false   # 最小实现先关掉
+```
+
+当节点数达到 $M_{max}$ 时，有两种简单处理方式：
+
+- 停止继续展开新节点，只在已有树上完成剩余模拟。
+- 清理当前根节点以外访问次数很低的分支。
+
+最小实现建议用第一种，因为行为更稳定。
+
+#### 6.2.4 每步搜索的节点规模估算
+
+如果每步 MCTS 模拟次数为 $n_{sim}$，则一次选招最多新增约 $n_{sim}$ 个节点：
+
+$$
+|\mathcal{T}_{step}| \le 1 + n_{sim}
+$$
+
+实际会更少，因为多次模拟可能走到已经展开过的节点。若 $n_{sim}=400$，单步搜索树通常只有几百到几千个节点；即使 $n_{sim}=800$，也不需要存储成跨整盘棋不断增长的大树。
+
+整盘棋第 $t$ 步后，如果不裁剪，节点数近似增长为：
+
+$$
+|\mathcal{T}_{game}| \approx \sum_{i=1}^{t} n_{sim}^{(i)}
+$$
+
+这会导致内存随步数线性增长。因此自我对弈中必须使用“根节点推进 + 丢弃兄弟分支”的策略，而不是保留所有历史搜索分支。
+
+#### 6.2.5 与训练样本存储的关系
+
+MCTS 树本身不需要落盘。每一步真正需要保存的是根节点搜索后的访问分布：
+
+$$
+\pi(a \mid s_0) =
+\frac{N(s_0,a)}
+{\sum_{b \in \mathcal{A}_{legal}(s_0)} N(s_0,b)}
+$$
+
+训练样本只保留：
+
+```text
+state: 当前走棋方视角编码
+pi_sparse: 根节点访问分布的稀疏形式
+player: 当前方
+```
+
+其中 $\pi$ 可以按稀疏格式保存：
+
+$$
+\pi =
+\left\{
+(a_i,\pi_i)
+\mid
+\pi_i > 0
+\right\}_{i=1}^{m}
+$$
+
+一盘棋结束后，再根据最终胜负为每个样本补上 $z$。也就是说，落盘的是训练数据，不是 MCTS 的完整节点树。
+
+训练伪代码：
+
+```text
+for step in training_steps:
+    batch = replay_buffer.sample(batch_size)
+    p, v = model(batch.state)
+
+    value_loss = mse(v, batch.z)
+    policy_loss = cross_entropy(p, batch.pi)
+    loss = value_loss + policy_loss + l2
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+```
+
+为了避免模型过早固定在某些套路，需要加入探索：
+
+```text
+开局若干步使用较高 temperature。
+根节点 policy 加 Dirichlet noise。
+训练样本池保留最近多代模型产生的数据。
+```
+
+根节点噪声示例：
+
+$$
+P'(s, a) =
+(1 - \epsilon)P(s, a)
++ \epsilon \eta_a
+$$
+
+$$
+\eta \sim \operatorname{Dir}(\alpha)
+$$
+
+其中：
+
+- $P(s, a)$：原始先验概率。
+- $P'(s, a)$：加噪声后的根节点先验概率。
+- $\epsilon$：噪声混合比例。
+- $\eta_a$：Dirichlet 分布采样得到的动作噪声。
+- $\alpha$：Dirichlet 分布参数。
+
+## 7. 对局终止与和棋处理
+
+自我对弈必须有明确终止条件，否则训练会出现无限拖延。
+
+建议至少实现：
+
+```text
+将死：胜负结束
+无合法走法：按规则判定
+重复局面：和棋或惩罚重复方
+连续 N 步无吃子：和棋
+超过最大回合数：和棋
+长将/长捉：禁止或判负
+```
+
+训练结果 `z` 可以定义为：
+
+$$
+z =
+\begin{cases}
++1, & \text{当前方胜利} \\
+-1, & \text{当前方失败} \\
+0, & \text{均势和棋} \\
+-\delta, & \text{当前方明显优势但和棋} \\
++\delta, & \text{当前方明显劣势但守和}
+\end{cases}
+$$
+
+其中：
+
+- $\delta$：一个较小的奖励修正值，例如 $0.1$ 到 $0.3$。
+- 优势方和棋给 $-\delta$：防止模型优势时只会拖和。
+- 劣势方守和给 $+\delta$：鼓励劣势时争取不输。
+
+如果先做最小可行版本，可以先使用：
+
+$$
+z \in \{-1, 0, +1\}
+$$
+
+其中 `+1` 表示当前方胜，`-1` 表示当前方负，`0` 表示和棋。
+
+等规则和搜索稳定后，再加入更细的和棋奖励设计。
+
+## 8. 最小实现顺序
+
+建议按以下顺序实现：
+
+```text
+1. 完成棋盘表示、合法走法生成、将军和将死判断。
+2. 实现局面统一视角编码。
+3. 实现固定动作空间和 action_id 编码。
+4. 实现 CNN 的 policy/value 双头输出。
+5. 实现 MCTS 节点、PUCT 选择、展开、评估和回传。
+6. 实现自我对弈数据生成。
+7. 实现 replay buffer 和损失函数训练。
+8. 加入模型评估，让新模型通过对战后再替换旧模型。
+```
+
+核心闭环可以总结为：
+
+```text
+CNN 给出直觉 -> MCTS 修正直觉 -> 自我对弈得到真实结果 -> 训练 CNN -> 下一轮更强
+```
