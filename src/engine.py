@@ -420,10 +420,7 @@ class Position:
         if king_square is None:
             return True
         if self._kings_face():
-            red_king = self.king_square_by_color.get(Color.RED)
-            black_king = self.king_square_by_color.get(Color.BLACK)
-            if king_square in (red_king, black_king):
-                return True
+            return True
 
         kx, ky = king_square
         attacker = color.opposite()
@@ -435,6 +432,7 @@ class Position:
                 if self._piece_attacks_square(x, y, piece, kx, ky):
                     return True
         return False
+        
 
     def _kings_face(self) -> bool:
         red_king = self.king_square_by_color.get(Color.RED)
@@ -451,8 +449,7 @@ class Position:
             return False
         if piece.kind is PieceKind.CANNON:
             return self._cannon_attacks(x, y, tx, ty)
-        return any(move.target == (tx, ty) for move in self._pseudo_moves_for_piece(x, y, piece))
-
+ 
     def _cannon_attacks(self, x: int, y: int, tx: int, ty: int) -> bool:
         if x != tx and y != ty:
             return False
