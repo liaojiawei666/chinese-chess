@@ -2,14 +2,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TypeAlias
 
 
+# 中国象棋棋盘为 9 列 10 行，坐标范围分别是 x=0..8、y=0..9。
 BOARD_WIDTH = 9
 BOARD_HEIGHT = 10
+
+# 棋盘总格数。动作编码会把源格和目标格都映射到 0..89。
 SQUARE_COUNT = BOARD_WIDTH * BOARD_HEIGHT
+
+# 动作空间大小：任意源格 * 任意目标格。非法动作后续由规则过滤。
 ACTION_SPACE_SIZE = SQUARE_COUNT * SQUARE_COUNT
+
+# 单局最多半回合数，超过后按步数上限终局。
 MAX_TOTAL_PLIES = 300
+
+# 连续未吃子的半回合数上限，达到后按无吃子规则判和。
 NO_CAPTURE_DRAW_PLIES = 100
+
+# 中国象棋 FEN 字符串："<10 行棋盘> <行棋方> [保留字段...] <未吃子半回合数> <完整回合数>"。
+# 当前解析器主要使用棋盘、行棋方、未吃子半回合数和完整回合数。
+ChineseChessFen: TypeAlias = str
+
+# 捉子关系表：被攻击方棋子 id -> 被攻击方及其攻击方信息。
+AttackedTargetsById: TypeAlias = dict[int, "AttackedTarget"]
 
 
 class Color(Enum):
@@ -48,7 +65,7 @@ FEN_TO_KIND = {
     "e": PieceKind.ELEPHANT,
     "h": PieceKind.HORSE,
     "r": PieceKind.ROOK,
-    "c": PieceKind.CANNON,
+    "c": PieceKind.CANNON, 
     "p": PieceKind.PAWN,
 }
 
@@ -57,24 +74,36 @@ KIND_TO_FEN = {kind: fen for fen, kind in FEN_TO_KIND.items()}
 
 @dataclass(frozen=True)
 class Piece:
+    """棋子实体：piece_id 标识同一个实体棋子，color/kind 描述棋子的值。
+
+    两个红车的 color/kind 相同，但 piece_id 不同；长将、长捉等规则靠
+    piece_id 跨局面追踪“同一个”棋子。
+    """
+
+    piece_id: int
     color: Color
     kind: PieceKind
 
     @classmethod
-    def from_fen(cls, value: str) -> "Piece":
+    def from_fen(cls, piece_id: int, value: str) -> "Piece":
         kind = FEN_TO_KIND.get(value.lower())
         if kind is None:
             raise ValueError(f"Invalid piece: {value}")
         color = Color.RED if value.isupper() else Color.BLACK
-        return cls(color, kind)
+        return cls(piece_id, color, kind)
 
     def to_fen(self) -> str:
         value = KIND_TO_FEN[self.kind]
         return value.upper() if self.color is Color.RED else value
 
+    def is_same_kind_as(self, other: "Piece") -> bool:
+        return self.kind is other.kind
+
 
 @dataclass(frozen=True)
 class Move:
+    """一步棋：从源格 (sx, sy) 走到目标格 (tx, ty)。"""
+
     sx: int
     sy: int
     tx: int
@@ -90,9 +119,88 @@ class Move:
 
 
 @dataclass(frozen=True)
+class Attacker:
+    """某个能合法吃掉目标子的攻击子。"""
+
+    piece: Piece
+    square: tuple[int, int]
+    target_can_recapture: bool
+
+
+@dataclass(frozen=True)
+class AttackedTarget:
+    """某个被 actor 攻击可吃的目标子，以及相关规则事实。"""
+
+    target: Piece
+    square: tuple[int, int]
+    attackers: tuple[Attacker, ...]
+    has_true_root: bool
+
+
+class MoveValidationReason(Enum):
+    """走法不合法的原因。"""
+
+    # 起点或终点不在棋盘范围内。
+    OUTSIDE_BOARD = "outside_board"
+
+    # 起点没有棋子。
+    NO_PIECE = "no_piece"
+
+    # 起点棋子不是当前行棋方。
+    WRONG_SIDE = "wrong_side"
+
+    # 目标格是己方棋子。
+    CAPTURE_OWN_PIECE = "capture_own_piece"
+
+    # 不符合该棋子的基础走法规则。
+    INVALID_PIECE_MOVE = "invalid_piece_move"
+
+    # 走完后将帅直接照面，局面非法。
+    KINGS_FACE = "kings_face"
+
+    # 走完后本方将帅仍被攻击，或主动暴露在攻击下。
+    LEAVES_KING_IN_CHECK = "leaves_king_in_check"
+
+
+@dataclass(frozen=True)
+class MoveValidationResult:
+    """走法校验结果；普通非法走法用 reason 表达，不靠异常控制流程。"""
+
+    is_legal: bool
+    reason: MoveValidationReason | None = None
+
+
+class GameStatusReason(Enum):
+    """终局原因。"""
+
+    # 将死：当前行棋方被将军，且没有任何合法走法可以解除将军。
+    CHECKMATE = "checkmate"
+
+    # 困毙：当前行棋方没有任何合法走法，但并未处于被将军状态。
+    STALEMATE = "stalemate"
+
+    # 长将：重复归原中一方持续将军，且按循环禁例判负。
+    PERPETUAL_CHECK = "perpetual_check"
+
+    # 长捉：重复归原中一方持续捉无真根棋子，且按循环禁例判负。
+    PERPETUAL_CHASE = "perpetual_chase"
+
+    # 双方同等犯例，或重复归原但双方均不构成长将/长捉，判和。
+    MUTUAL_PERPETUAL = "mutual_perpetual"
+
+    # 自然限着：连续达到规定半回合数均未吃子，判和。
+    FIFTY_MOVE = "fifty_move"
+
+    # 工程步数上限：达到最大半回合数仍未分出胜负，判和。
+    MAX_MOVES = "max_moves"
+
+
+@dataclass(frozen=True)
 class GameStatus:
+    """当前局面的终局状态。"""
+
     is_terminal: bool
-    reason: str | None = None
+    reason: GameStatusReason | None = None
     winner: Color | None = None
 
 
@@ -129,12 +237,28 @@ def crossed_river(color: Color, y: int) -> bool:
 
 @dataclass(frozen=True)
 class Position:
+    """不可变的棋盘局面。
+
+    坐标使用 (x, y)：x 是从左到右的列，范围 0..8；y 是从黑方到红方的行，
+    范围 0..9。二维棋盘按 [y][x] 访问。
+    """
+
+    # 主棋盘：每个格子存棋子实体（含 piece_id）；空格为 None。
     board: tuple[tuple[Piece | None, ...], ...]
-    side_to_move: Color
-    piece_ids: tuple[tuple[int | None, ...], ...]
+
+    # 当前轮到哪一方走棋。
+    side_to_move: Color                                                                                                                                                                                                                                                                                                                                                                       
+
+    # 反向索引，方便快速查找：棋子 id -> 当前 (x, y)。被吃掉的棋子会从这里移除。
     piece_positions: dict[int, tuple[int, int]]
+
+    # 缓存双方将帅的位置，判断是否被将军时不用先扫描整张棋盘。
     king_square_by_color: dict[Color, tuple[int, int]]
-    halfmove_clock: int = 0
+
+    # 连续未吃子的半回合数，用于无吃子和棋规则。
+    no_capture_plies: int = 0
+
+    # 完整回合数，黑方走完后递增。
     fullmove_number: int = 1
 
     @classmethod
@@ -142,7 +266,7 @@ class Position:
         return cls.from_fen("rheakaehr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RHEAKAEHR r")
 
     @classmethod
-    def from_fen(cls, fen: str) -> "Position":
+    def from_fen(cls, fen: ChineseChessFen) -> "Position":
         parts = fen.split()
         if len(parts) < 2:
             raise ValueError(f"Invalid FEN: {fen}")
@@ -151,25 +275,21 @@ class Position:
             raise ValueError(f"Invalid FEN board height: {fen}")
 
         board_rows: list[list[Piece | None]] = []
-        id_rows: list[list[int | None]] = []
         piece_positions: dict[int, tuple[int, int]] = {}
         king_square_by_color: dict[Color, tuple[int, int]] = {}
         next_id = 0
 
         for y, row in enumerate(rows):
             board_row: list[Piece | None] = []
-            id_row: list[int | None] = []
             for char in row:
                 if char.isdigit():
                     empty_count = int(char)
                     board_row.extend([None] * empty_count)
-                    id_row.extend([None] * empty_count)
                     continue
 
-                piece = Piece.from_fen(char)
+                piece = Piece.from_fen(next_id, char)
                 x = len(board_row)
                 board_row.append(piece)
-                id_row.append(next_id)
                 piece_positions[next_id] = (x, y)
                 if piece.kind is PieceKind.KING:
                     king_square_by_color[piece.color] = (x, y)
@@ -178,23 +298,21 @@ class Position:
             if len(board_row) != BOARD_WIDTH:
                 raise ValueError(f"Invalid FEN row width: {row}")
             board_rows.append(board_row)
-            id_rows.append(id_row)
 
         side_to_move = Color.from_fen_side(parts[1])
-        halfmove_clock = int(parts[4]) if len(parts) >= 5 else 0
+        no_capture_plies = int(parts[4]) if len(parts) >= 5 else 0
         fullmove_number = int(parts[5]) if len(parts) >= 6 else 1
 
         return cls(
             tuple(tuple(row) for row in board_rows),
             side_to_move,
-            tuple(tuple(row) for row in id_rows),
             piece_positions,
             king_square_by_color,
-            halfmove_clock,
+            no_capture_plies,
             fullmove_number,
         )
-
-    def to_fen(self) -> str:
+                 
+    def to_fen(self) -> ChineseChessFen:
         rows: list[str] = []
         for y in range(BOARD_HEIGHT):
             row = ""
@@ -213,7 +331,7 @@ class Position:
             rows.append(row)
         return f"{'/'.join(rows)} {self.side_to_move.fen_side}"
 
-    def repetition_key(self) -> str:
+    def repetition_key(self) -> ChineseChessFen:
         return self.to_fen()
 
     def piece_at(self, x: int, y: int) -> Piece | None:
@@ -221,60 +339,70 @@ class Position:
             return None
         return self.board[y][x]
 
-    def piece_id_at(self, x: int, y: int) -> int | None:
-        if not in_board(x, y):
-            return None
-        return self.piece_ids[y][x]
+    def require_piece_at(self, x: int, y: int) -> Piece:
+        piece = self.piece_at(x, y)
+        if piece is None:
+            raise ValueError(f"No piece at {(x, y)}")
+        return piece
 
-    def _set_square(
-        self,
-        board: list[list[Piece | None]],
-        piece_ids: list[list[int | None]],
-        x: int,
-        y: int,
-        piece: Piece | None,
-        piece_id: int | None,
-    ) -> None:
-        board[y][x] = piece
-        piece_ids[y][x] = piece_id
-
-    def make_move(self, move: Move) -> "Position":
-        if not in_board(move.sx, move.sy) or not in_board(move.tx, move.ty):
-            raise ValueError(f"Move outside board: {move}")
-        piece = self.piece_at(move.sx, move.sy)
-        piece_id = self.piece_id_at(move.sx, move.sy)
-        if piece is None or piece_id is None:
-            raise ValueError(f"No piece at {move.source}")
+    def _apply_move(self, move: Move, piece: Piece) -> "Position":
         captured = self.piece_at(move.tx, move.ty)
-        captured_id = self.piece_id_at(move.tx, move.ty)
-        if captured is not None and captured.color is piece.color:
-            raise ValueError(f"Cannot capture own piece: {move}")
 
         board = [list(row) for row in self.board]
-        piece_ids = [list(row) for row in self.piece_ids]
         piece_positions = dict(self.piece_positions)
         king_square_by_color = dict(self.king_square_by_color)
 
-        self._set_square(board, piece_ids, move.sx, move.sy, None, None)
-        self._set_square(board, piece_ids, move.tx, move.ty, piece, piece_id)
-        piece_positions[piece_id] = move.target
-        if captured_id is not None:
-            piece_positions.pop(captured_id, None)
+        board[move.sy][move.sx] = None
+        board[move.ty][move.tx] = piece
+        piece_positions[piece.piece_id] = move.target
+        if captured is not None:
+            piece_positions.pop(captured.piece_id, None)
         if piece.kind is PieceKind.KING:
             king_square_by_color[piece.color] = move.target
 
         next_side = self.side_to_move.opposite()
-        next_halfmove = 0 if captured is not None else self.halfmove_clock + 1
+        next_no_capture_plies = 0 if captured is not None else self.no_capture_plies + 1
         next_fullmove = self.fullmove_number + (1 if self.side_to_move is Color.BLACK else 0)
         return Position(
             tuple(tuple(row) for row in board),
             next_side,
-            tuple(tuple(row) for row in piece_ids),
             piece_positions,
             king_square_by_color,
-            next_halfmove,
+            next_no_capture_plies,
             next_fullmove,
         )
+
+    def validate_move(self, move: Move, check_side_to_move: bool = True) -> MoveValidationResult:
+        if not in_board(move.sx, move.sy) or not in_board(move.tx, move.ty):
+            return MoveValidationResult(False, MoveValidationReason.OUTSIDE_BOARD)
+        piece = self.piece_at(move.sx, move.sy)
+        if piece is None:
+            return MoveValidationResult(False, MoveValidationReason.NO_PIECE)
+        if check_side_to_move and piece.color is not self.side_to_move:
+            return MoveValidationResult(False, MoveValidationReason.WRONG_SIDE)
+        captured = self.piece_at(move.tx, move.ty)
+        if captured is not None and captured.color is piece.color:
+            return MoveValidationResult(False, MoveValidationReason.CAPTURE_OWN_PIECE)
+        if move not in self._pseudo_moves_for_piece(move.sx, move.sy, piece):
+            return MoveValidationResult(False, MoveValidationReason.INVALID_PIECE_MOVE)
+
+        next_position = self._apply_move(move, piece)
+        if next_position._kings_face():
+            return MoveValidationResult(False, MoveValidationReason.KINGS_FACE)
+        if next_position.is_in_check(piece.color):
+            return MoveValidationResult(False, MoveValidationReason.LEAVES_KING_IN_CHECK)
+        return MoveValidationResult(True)
+
+    def is_legal_move(self, move: Move, check_side_to_move: bool = True) -> bool:
+        return self.validate_move(move, check_side_to_move).is_legal
+
+    def make_move(self, move: Move) -> "Position":
+        validation = self.validate_move(move)
+        if not validation.is_legal:
+            reason = validation.reason.value if validation.reason is not None else "unknown"
+            raise ValueError(f"Illegal move ({reason}): {move}")
+        piece = self.require_piece_at(move.sx, move.sy)
+        return self._apply_move(move, piece)
 
     def legal_move_mask(self) -> list[bool]:
         mask = [False] * ACTION_SPACE_SIZE
@@ -290,11 +418,7 @@ class Position:
                 if piece is None or piece.color is not self.side_to_move:
                     continue
                 for move in self._pseudo_moves_for_piece(x, y, piece):
-                    try:
-                        next_position = self.make_move(move)
-                    except ValueError:
-                        continue
-                    if not next_position.is_in_check(piece.color):
+                    if self.is_legal_move(move):
                         moves.append(move)
         return moves
 
@@ -418,9 +542,9 @@ class Position:
     def is_in_check(self, color: Color) -> bool:
         king_square = self.king_square_by_color.get(color)
         if king_square is None:
-            return True
+            raise ValueError(f"Missing king for {color.value}")
         if self._kings_face():
-            return True
+            raise ValueError("Illegal position: kings face each other")
 
         kx, ky = king_square
         attacker = color.opposite()
@@ -448,7 +572,10 @@ class Position:
         if target is not None and target.color is piece.color:
             return False
         if piece.kind is PieceKind.CANNON:
+            # 这里判定的是能否攻击目标格。炮的移动和吃子规则不同：
+            # 其他棋子的“能走到”基本等价于“能攻击到”，可复用伪合法走法。
             return self._cannon_attacks(x, y, tx, ty)
+        return any(move.target == (tx, ty) for move in self._pseudo_moves_for_piece(x, y, piece))
  
     def _cannon_attacks(self, x: int, y: int, tx: int, ty: int) -> bool:
         if x != tx and y != ty:
@@ -476,8 +603,8 @@ class Position:
             return GameStatus(False)
         winner = self.side_to_move.opposite()
         if self.is_in_check(self.side_to_move):
-            return GameStatus(True, "checkmate", winner)
-        return GameStatus(True, "stalemate", winner)
+            return GameStatus(True, GameStatusReason.CHECKMATE, winner)
+        return GameStatus(True, GameStatusReason.STALEMATE, winner)
 
 
 @dataclass(frozen=True)
@@ -487,12 +614,72 @@ class MoveRecord:
     move: Move
     actor: Color
 
+    def attacked_targets(self) -> AttackedTargetsById:
+        attacked_targets: AttackedTargetsById = {}
+        attackers_by_target: dict[int, list[Attacker]] = {}
+        for attacker_id, (ax, ay) in self.position_after.piece_positions.items():
+            attacker = self.position_after.require_piece_at(ax, ay)
+            if attacker.color is not self.actor:
+                continue
+            for target_id, (tx, ty) in self.position_after.piece_positions.items():
+                target = self.position_after.require_piece_at(tx, ty)
+                if target.color is self.actor or target.kind is PieceKind.KING:
+                    continue
+                if self.position_after.is_legal_move(Move(ax, ay, tx, ty), check_side_to_move=False):
+                    attackers_by_target.setdefault(target_id, []).append(
+                        Attacker(
+                            attacker,
+                            (ax, ay),
+                            self.position_after.is_legal_move(Move(tx, ty, ax, ay), check_side_to_move=False),
+                        )
+                    )
+        for target_id, attackers in attackers_by_target.items():
+            target_square = self.position_after.piece_positions[target_id]
+            target = self.position_after.require_piece_at(*target_square)
+            attacked_targets[target_id] = AttackedTarget(
+                target,
+                target_square,
+                tuple(attackers),
+                self._has_true_root(target_id),
+            )
+        return attacked_targets
+
+    def _has_true_root(self, target_id: int) -> bool:
+        target_pos = self.position_after.piece_positions[target_id]
+        tx, ty = target_pos
+        target = self.position_after.require_piece_at(tx, ty)
+
+        for attacker_id, attacker_pos in self.position_after.piece_positions.items():
+            ax, ay = attacker_pos
+            attacker = self.position_after.require_piece_at(ax, ay)
+            if attacker.color is target.color:
+                continue
+            capture_move = Move(ax, ay, tx, ty)
+            if not self.position_after.is_legal_move(capture_move, check_side_to_move=False):
+                continue
+            captured_position = self.position_after._apply_move(capture_move, attacker)
+            for defender_id, defender_pos in captured_position.piece_positions.items():
+                dx, dy = defender_pos
+                defender = captured_position.require_piece_at(dx, dy)
+                if defender.color is not target.color:
+                    continue
+                if captured_position.is_legal_move(Move(dx, dy, tx, ty), check_side_to_move=False):
+                    return True
+        return False
+
 
 @dataclass
 class GameState:
     position: Position
+
+    # 已走过的每一步，供重复局面、长将、长捉等需要历史的规则使用。
     history: list[MoveRecord]
+
+    # 局面 key 出现次数，用来快速判断当前局面是否重复。
     repetition_counts: dict[str, int]
+
+    # 局面 key -> 该局面出现过的历史位置。重复时用最近两次位置截取中间走子片段，
+    # 再分析这段里是否存在长将、长捉或互打。
     key_indices: dict[str, list[int]]
 
     @classmethod
@@ -500,9 +687,7 @@ class GameState:
         key = position.repetition_key()
         return cls(position, [], {key: 1}, {key: [0]})
 
-    def make_move(self, move: Move, validate: bool = True) -> "GameState":
-        if validate and move not in self.position.legal_moves():
-            raise ValueError(f"Illegal move: {move}")
+    def make_move(self, move: Move) -> "GameState":
         next_position = self.position.make_move(move)
         record = MoveRecord(self.position, next_position, move, self.position.side_to_move)
         history = [*self.history, record]
@@ -517,14 +702,14 @@ class GameState:
         position_status = self.position.status()
         if position_status.is_terminal:
             return position_status
-        if self.position.halfmove_clock >= NO_CAPTURE_DRAW_PLIES:
-            return GameStatus(True, "fifty_move", None)
-        if len(self.history) >= MAX_TOTAL_PLIES:
-            return GameStatus(True, "max_moves", None)
 
         key = self.position.repetition_key()
-        if self.repetition_counts.get(key, 0) >= 2:
+        if self.repetition_counts.get(key, 0) >= 3:
             return self._repetition_status(key)
+        if self.position.no_capture_plies >= NO_CAPTURE_DRAW_PLIES:
+            return GameStatus(True, GameStatusReason.FIFTY_MOVE, None)
+        if len(self.history) >= MAX_TOTAL_PLIES:
+            return GameStatus(True, GameStatusReason.MAX_MOVES, None)
         return GameStatus(False)
 
     def _repetition_status(self, key: str) -> GameStatus:
@@ -536,177 +721,86 @@ class GameState:
         red_violation = self._violation_for(Color.RED, segment)
         black_violation = self._violation_for(Color.BLACK, segment)
 
-        if red_violation is None and black_violation is None:
-            return GameStatus(True, "mutual_perpetual", None)
         if red_violation == black_violation:
-            return GameStatus(True, "mutual_perpetual", None)
+            return GameStatus(True, GameStatusReason.MUTUAL_PERPETUAL, None)
         if red_violation == "check" and black_violation != "check":
-            return GameStatus(True, "perpetual_check", Color.BLACK)
+            return GameStatus(True, GameStatusReason.PERPETUAL_CHECK, Color.BLACK)
         if black_violation == "check" and red_violation != "check":
-            return GameStatus(True, "perpetual_check", Color.RED)
+            return GameStatus(True, GameStatusReason.PERPETUAL_CHECK, Color.RED)
         if red_violation == "chase":
-            return GameStatus(True, "perpetual_chase", Color.BLACK)
+            return GameStatus(True, GameStatusReason.PERPETUAL_CHASE, Color.BLACK)
         if black_violation == "chase":
-            return GameStatus(True, "perpetual_chase", Color.RED)
-        return GameStatus(True, "mutual_perpetual", None)
+            return GameStatus(True, GameStatusReason.PERPETUAL_CHASE, Color.RED)
+        return GameStatus(True, GameStatusReason.MUTUAL_PERPETUAL, None)
 
     def _violation_for(self, color: Color, segment: list[MoveRecord]) -> str | None:
         own_records = [record for record in segment if record.actor is color]
         if not own_records:
-            return None
+            raise ValueError(f"Repetition segment has no moves by {color.value}")
         if all(record.position_after.is_in_check(color.opposite()) for record in own_records):
             return "check"
-        if self._is_perpetual_chase(color, own_records):
+        if self._is_perpetual_chase(own_records):
             return "chase"
         return None
 
-    def _is_perpetual_chase(self, color: Color, records: list[MoveRecord]) -> bool:
-        attacked_by_record: list[set[int]] = []
-        attackers_by_target: dict[int, list[set[int]]] = {}
+    def _is_perpetual_chase(self, records: list[MoveRecord]) -> bool:
+        attacked_target_ids_by_record: list[set[int]] = []
+        attacked_targets_by_id_by_record: dict[int, list[AttackedTarget]] = {}
 
         for record in records:
-            attacks = self._attacked_non_king_targets(record.position_after, color)
-            attacked = set(attacks)
-            if not attacked:
+            attacked_targets = record.attacked_targets()
+            attacked_target_ids = set(attacked_targets)
+            if not attacked_target_ids:
                 return False
-            attacked_by_record.append(attacked)
-            for target_id, attacker_ids in attacks.items():
-                attackers_by_target.setdefault(target_id, []).append(attacker_ids)
+            attacked_target_ids_by_record.append(attacked_target_ids)
+            for target_id, attacked_target in attacked_targets.items():
+                attacked_targets_by_id_by_record.setdefault(target_id, []).append(attacked_target)
 
-        candidates = set.intersection(*attacked_by_record)
+        candidates = set.intersection(*attacked_target_ids_by_record)
         for target_id in candidates:
-            if self._target_exempt_from_chase(records, color, target_id, attackers_by_target[target_id]):
+            attacked_targets_by_record = attacked_targets_by_id_by_record[target_id]
+            if self._target_exempt_from_chase(attacked_targets_by_record):
                 continue
-            if all(not self._has_true_root(record.position_after, color, target_id) for record in records):
+            # 马/炮长捉有根车仍按长捉处理，优先于真根豁免。
+            if self._target_is_rook_chased_by_horse_or_cannon(attacked_targets_by_record):
                 return True
-            if self._target_is_rook_chased_by_horse_or_cannon(records, color, target_id, attackers_by_target[target_id]):
+            if all(not attacked_target.has_true_root for attacked_target in attacked_targets_by_record):
                 return True
         return False
 
-    def _attacked_non_king_targets(self, position: Position, color: Color) -> dict[int, set[int]]:
-        attacks: dict[int, set[int]] = {}
-        for attacker_id, (ax, ay) in position.piece_positions.items():
-            attacker = position.piece_at(ax, ay)
-            if attacker is None or attacker.color is not color:
-                continue
-            for target_id, (tx, ty) in position.piece_positions.items():
-                target = position.piece_at(tx, ty)
-                if target is None or target.color is color or target.kind is PieceKind.KING:
-                    continue
-                if position._piece_attacks_square(ax, ay, attacker, tx, ty):
-                    attacks.setdefault(target_id, set()).add(attacker_id)
-        return attacks
-
-    def _target_exempt_from_chase(
-        self,
-        records: list[MoveRecord],
-        color: Color,
-        target_id: int,
-        attackers_by_event: list[set[int]],
-    ) -> bool:
-        target_position = records[-1].position_after.piece_positions.get(target_id)
-        if target_position is None:
-            return True
-        target = records[-1].position_after.piece_at(*target_position)
-        if target is None:
-            return True
-        if target.kind is PieceKind.PAWN and not crossed_river(target.color, target_position[1]):
+    def _target_exempt_from_chase(self, attacked_targets_by_record: list[AttackedTarget]) -> bool:
+        final_attacked_target = attacked_targets_by_record[-1]
+        target = final_attacked_target.target
+        if target.kind is PieceKind.PAWN and not crossed_river(target.color, final_attacked_target.square[1]):
             return True
 
-        all_attackers_are_minor = True
-        for record, attacker_ids in zip(records, attackers_by_event, strict=True):
-            for attacker_id in attacker_ids:
-                pos = record.position_after.piece_positions.get(attacker_id)
-                if pos is None:
-                    continue
-                attacker = record.position_after.piece_at(*pos)
-                if attacker is not None and attacker.kind not in (PieceKind.KING, PieceKind.PAWN):
-                    all_attackers_are_minor = False
-        if all_attackers_are_minor:
+        # 规则允许将/帅和兵/卒长捉，全部攻击子都属于这两类时豁免。
+        if all(
+            attacker.piece.kind in (PieceKind.KING, PieceKind.PAWN)
+            for attacked_target in attacked_targets_by_record
+            for attacker in attacked_target.attackers
+        ):
             return True
 
-        return self._is_same_kind_exchange(records, target_id, attackers_by_event)
+        return self._is_same_kind_exchange(attacked_targets_by_record)
 
-    def _is_same_kind_exchange(
-        self,
-        records: list[MoveRecord],
-        target_id: int,
-        attackers_by_event: list[set[int]],
-    ) -> bool:
-        for record, attacker_ids in zip(records, attackers_by_event, strict=True):
-            target_pos = record.position_after.piece_positions.get(target_id)
-            if target_pos is None:
-                return False
-            target = record.position_after.piece_at(*target_pos)
-            if target is None:
-                return False
-            found_exchange = False
-            for attacker_id in attacker_ids:
-                attacker_pos = record.position_after.piece_positions.get(attacker_id)
-                if attacker_pos is None:
-                    continue
-                attacker = record.position_after.piece_at(*attacker_pos)
-                if attacker is None or attacker.kind is not target.kind:
-                    continue
-                if record.position_after._piece_attacks_square(target_pos[0], target_pos[1], target, attacker_pos[0], attacker_pos[1]):
-                    found_exchange = True
-                    break
-            if not found_exchange:
-                return False
-        return True
-
-    def _target_is_rook_chased_by_horse_or_cannon(
-        self,
-        records: list[MoveRecord],
-        color: Color,
-        target_id: int,
-        attackers_by_event: list[set[int]],
-    ) -> bool:
-        for record, attacker_ids in zip(records, attackers_by_event, strict=True):
-            target_pos = record.position_after.piece_positions.get(target_id)
-            if target_pos is None:
-                return False
-            target = record.position_after.piece_at(*target_pos)
-            if target is None or target.kind is not PieceKind.ROOK:
-                return False
+    def _is_same_kind_exchange(self, attacked_targets_by_record: list[AttackedTarget]) -> bool:
+        for attacked_target in attacked_targets_by_record:
             if not any(
-                (attacker := self._piece_by_id(record.position_after, attacker_id)) is not None
-                and attacker.kind in (PieceKind.HORSE, PieceKind.CANNON)
-                for attacker_id in attacker_ids
+                attacker.piece.is_same_kind_as(attacked_target.target)
+                and attacker.target_can_recapture
+                for attacker in attacked_target.attackers
             ):
                 return False
         return True
 
-    def _piece_by_id(self, position: Position, piece_id: int) -> Piece | None:
-        square = position.piece_positions.get(piece_id)
-        if square is None:
-            return None
-        return position.piece_at(*square)
-
-    def _has_true_root(self, position: Position, attacker_color: Color, target_id: int) -> bool:
-        target_pos = position.piece_positions.get(target_id)
-        if target_pos is None:
-            return False
-        tx, ty = target_pos
-        target = position.piece_at(tx, ty)
-        if target is None:
-            return False
-
-        for attacker_id, attacker_pos in position.piece_positions.items():
-            ax, ay = attacker_pos
-            attacker = position.piece_at(ax, ay)
-            if attacker is None or attacker.color is not attacker_color:
-                continue
-            if not position._piece_attacks_square(ax, ay, attacker, tx, ty):
-                continue
-            captured_position = position.make_move(Move(ax, ay, tx, ty))
-            for defender_id, defender_pos in captured_position.piece_positions.items():
-                if defender_id == target_id:
-                    continue
-                dx, dy = defender_pos
-                defender = captured_position.piece_at(dx, dy)
-                if defender is None or defender.color is attacker_color:
-                    continue
-                if captured_position._piece_attacks_square(dx, dy, defender, tx, ty):
-                    return True
-        return False
+    def _target_is_rook_chased_by_horse_or_cannon(self, attacked_targets_by_record: list[AttackedTarget]) -> bool:
+        for attacked_target in attacked_targets_by_record:
+            if attacked_target.target.kind is not PieceKind.ROOK:
+                return False
+            if not any(
+                attacker.piece.kind in (PieceKind.HORSE, PieceKind.CANNON)
+                for attacker in attacked_target.attackers
+            ):
+                return False
+        return True

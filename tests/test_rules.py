@@ -3,9 +3,9 @@ import unittest
 from engine import (
     ACTION_SPACE_SIZE,
     Color,
+    GameStatusReason,
     GameState,
     Move,
-    Piece,
     PieceKind,
     Position,
     action_id_to_move,
@@ -34,7 +34,10 @@ class XiangqiRulesTest(unittest.TestCase):
         next_position = position.make_move(move)
 
         self.assertIsNone(position.piece_at(2, 7))
-        self.assertEqual(next_position.piece_at(2, 7), Piece(Color.RED, PieceKind.HORSE))
+        moved_piece = next_position.piece_at(2, 7)
+        self.assertIsNotNone(moved_piece)
+        self.assertEqual(moved_piece.color, Color.RED)
+        self.assertEqual(moved_piece.kind, PieceKind.HORSE)
         self.assertIsNone(next_position.piece_at(1, 9))
         self.assertEqual(next_position.side_to_move, Color.BLACK)
 
@@ -90,7 +93,7 @@ class XiangqiRulesTest(unittest.TestCase):
         status = position.status()
 
         self.assertTrue(status.is_terminal)
-        self.assertEqual(status.reason, "checkmate")
+        self.assertEqual(status.reason, GameStatusReason.CHECKMATE)
         self.assertEqual(status.winner, Color.RED)
 
     def test_repetition_key_ignores_counters(self) -> None:
@@ -101,62 +104,68 @@ class XiangqiRulesTest(unittest.TestCase):
 
     def test_piece_indexes_follow_moves(self) -> None:
         position = Position.starting()
-        moving_piece_id = position.piece_id_at(1, 9)
+        moving_piece = position.piece_at(1, 9)
+        self.assertIsNotNone(moving_piece)
+        moving_piece_id = moving_piece.piece_id
 
         next_position = position.make_move(Move(1, 9, 2, 7))
 
-        self.assertIsNotNone(moving_piece_id)
-        self.assertIsNone(next_position.piece_id_at(1, 9))
-        self.assertEqual(next_position.piece_id_at(2, 7), moving_piece_id)
+        moved_piece = next_position.piece_at(2, 7)
+        self.assertIsNotNone(moved_piece)
+        self.assertIsNone(next_position.piece_at(1, 9))
+        self.assertEqual(moved_piece.piece_id, moving_piece_id)
         self.assertEqual(next_position.piece_positions[moving_piece_id], (2, 7))
         self.assertEqual(next_position.king_square_by_color[Color.RED], (4, 9))
 
     def test_game_state_detects_perpetual_check(self) -> None:
-        game = GameState.from_position(Position.from_fen("h3k4/9/4R4/9/9/9/9/9/9/4K4 r"))
+        game = GameState.from_position(Position.from_fen("4k4/9/3R5/9/9/9/9/9/4A4/4K4 r"))
 
-        for move in (
-            Move(4, 2, 4, 1),
-            Move(0, 0, 1, 2),
-            Move(4, 1, 4, 2),
-            Move(1, 2, 0, 0),
-        ):
-            game = game.make_move(move, validate=False)
+        cycle = (
+            Move(3, 2, 4, 2),
+            Move(4, 0, 3, 0),
+            Move(4, 2, 3, 2),
+            Move(3, 0, 4, 0),
+        )
+        for move in cycle * 2:
+            game = game.make_move(move)
 
         status = game.status()
         self.assertTrue(status.is_terminal)
-        self.assertEqual(status.reason, "perpetual_check")
+        self.assertEqual(status.reason, GameStatusReason.PERPETUAL_CHECK)
         self.assertEqual(status.winner, Color.BLACK)
 
     def test_game_state_detects_perpetual_chase(self) -> None:
-        game = GameState.from_position(Position.from_fen("k3h3p/9/9/9/4R4/9/9/9/9/1K7 r"))
+        game = GameState.from_position(Position.from_fen("k3h3h/9/9/9/4R4/9/9/9/9/1K7 r"))
 
-        for move in (
+        cycle = (
             Move(4, 4, 4, 5),
-            Move(8, 0, 8, 1),
+            Move(8, 0, 7, 2),
             Move(4, 5, 4, 4),
-            Move(8, 1, 8, 0),
-        ):
-            game = game.make_move(move, validate=False)
+            Move(7, 2, 8, 0),
+        )
+        for move in cycle * 2:
+            game = game.make_move(move)
 
         status = game.status()
         self.assertTrue(status.is_terminal)
-        self.assertEqual(status.reason, "perpetual_chase")
+        self.assertEqual(status.reason, GameStatusReason.PERPETUAL_CHASE)
         self.assertEqual(status.winner, Color.BLACK)
 
     def test_game_state_detects_mutual_perpetual(self) -> None:
         game = GameState.from_position(Position.from_fen("k3h4/8r/9/9/4R4/9/9/9/9/1K6H r"))
 
-        for move in (
+        cycle = (
             Move(4, 4, 4, 5),
             Move(8, 1, 8, 2),
             Move(4, 5, 4, 4),
             Move(8, 2, 8, 1),
-        ):
-            game = game.make_move(move, validate=False)
+        )
+        for move in cycle * 2:
+            game = game.make_move(move)
 
         status = game.status()
         self.assertTrue(status.is_terminal)
-        self.assertEqual(status.reason, "mutual_perpetual")
+        self.assertEqual(status.reason, GameStatusReason.MUTUAL_PERPETUAL)
         self.assertIsNone(status.winner)
 
 
