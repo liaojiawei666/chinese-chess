@@ -1,0 +1,37 @@
+<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="780" pageHeight="400" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：总损失 = value 的 MSE + policy 的交叉熵 + L2 正则" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=16;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="20" y="12" width="740" height="28" as="geometry"/>
+    </mxCell>
+    <mxCell id="hp" value="预测（网络输出）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#a6822a;fontSize=11;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="30" y="48" width="110" height="18" as="geometry"/></mxCell>
+    <mxCell id="ht" value="目标（训练样本）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#2a5d9c;fontSize=11;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="30" y="232" width="110" height="18" as="geometry"/></mxCell>
+
+    <mxCell id="p" value="策略 p" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="40" y="72" width="90" height="36" as="geometry"/></mxCell>
+    <mxCell id="pi" value="MCTS 分布 π" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="40" y="116" width="90" height="36" as="geometry"/></mxCell>
+    <mxCell id="ce" value="交叉熵&#10;− Σₐ πₐ log pₐ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="210" y="78" width="170" height="52" as="geometry"/></mxCell>
+
+    <mxCell id="v" value="价值 v" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="40" y="172" width="90" height="36" as="geometry"/></mxCell>
+    <mxCell id="z" value="对局结果 z" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="40" y="216" width="90" height="36" as="geometry"/></mxCell>
+    <mxCell id="mse" value="MSE&#10;(z − v)²" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="210" y="178" width="170" height="52" as="geometry"/></mxCell>
+
+    <mxCell id="th" value="参数 θ" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="40" y="294" width="90" height="36" as="geometry"/></mxCell>
+    <mxCell id="l2" value="L2 正则&#10;λ ‖θ‖²" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="210" y="290" width="170" height="46" as="geometry"/></mxCell>
+
+    <mxCell id="sum" value="总损失 L&#10;= (z−v)² − Σₐ πₐ log pₐ + λ‖θ‖²" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="470" y="150" width="280" height="100" as="geometry"/></mxCell>
+
+    <mxCell id="ep" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.4;" edge="1" parent="1" source="p" target="ce"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="epi" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.4;" edge="1" parent="1" source="pi" target="ce"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="ev" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.4;" edge="1" parent="1" source="v" target="mse"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="ez" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.4;" edge="1" parent="1" source="z" target="mse"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eth" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.4;" edge="1" parent="1" source="th" target="l2"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="ece" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;" edge="1" parent="1" source="ce" target="sum"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="emse" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;" edge="1" parent="1" source="mse" target="sum"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="el2" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;" edge="1" parent="1" source="l2" target="sum"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <mxCell id="key" value="policy 用交叉熵：让网络预测分布 p 贴近 MCTS 搜索得到的 π（更可靠的「老师」）。value 用 MSE：让估值 v 贴近这盘棋的真实结果 z（+1 胜 / 0 和 / −1 负）。L2 正则：惩罚过大权重，抑制过拟合。三项相加为一个标量损失 L，用于反向传播。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="20" y="352" width="740" height="40" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

@@ -1,0 +1,153 @@
+---
+alwaysApply: false
+description: MCTS + CNN 中国象棋自对弈训练的工程实现规划（模块划分、接口、关键问题、实现顺序）。
+---
+
+# 工程实现规划
+
+本文是 `01-mcts-cnn.mdc`（算法"是什么"）的落地篇，说明代码"怎么实现"：要实现哪些模块、对外接口、关键工程问题、实现顺序。算法细节不在此重复。
+
+## 1. 现状与本次目标
+
+- 已有 `src/engine.py`：规则引擎完整，含局面 (`Position`/`GameState`)、合法走法、将军/将死、长将长捉、重复判和；**动作编码已就绪**（`move_to_action_id` / `action_id_to_move`，动作空间 8100，`legal_move_mask()`）。
+- 已实现：`config` / `encoder` / `network` / `evaluator` / `mcts`（含子树复用）。
+- 待实现：`selfplay` / `replay` / `train` / `pipeline`。
+- **第一阶段目标（最小闭环）**：`encoder + network + mcts + selfplay + train` 串起来能自对弈，并让 loss 稳定下降。`evaluate` / 人机对战 / checkpoint / 监控属于后续阶段，`config` 里先留好字段。
+
+## 2. 模块划分
+
+```text
+src/
+  config.py        # 全工程常量/超参单一来源：棋盘几何、规则上限、编码维度、NetworkConfig
+  engine.py        # 已有：规则引擎（常量从 config 导入并重新导出）
+  encoder.py       # 局面 <-> 张量：canonical 视角、通道编码、canonical 动作变换、legal mask
+  network.py       # 纯 CNN：trunk + policy head + value head（张量进出，不 mask/softmax）
+  evaluator.py     # 推理适配层：encode+device+mask+softmax，局面进 -> (priors, value) 出
+  mcts.py          # 节点/边、PUCT、expand、evaluate(经 Evaluator)、backup、subtree 复用
+  selfplay.py      # 跑一盘自对弈 -> 产出 (state, pi, z) 样本
+  replay.py        # replay buffer：样本存储 + 采样（第一阶段纯内存）
+  train.py         # 训练一轮：采 batch、算 loss、更新参数（直接用 PolicyValueNet 算梯度）
+  pipeline.py      # 主循环：自对弈 -> 训练（-> 后续接评估）
+  # 后续阶段：evaluate.py（新旧模型对弈换代）、play.py（人机对战 CLI）
+```
+
+依赖方向：`config <- engine <- encoder <- network/evaluator <- mcts <- selfplay <- pipeline`，`train <- replay`。
+
+**坐标系约定**：canonical 视角只是网络输入/输出的内部细节，完整封装在 `encoder` + `evaluator` 内。MCTS/selfplay 一律用真实 `Move`；只有在构造训练样本 `pi`（要对齐网络的 canonical policy）时，才由 selfplay 用 `to_canonical_action` 把访问次数转到 canonical 动作空间。
+
+## 3. 关键接口（设计草图）
+
+```python
+# config.py — 常量单一来源（N_HISTORY/PLANES_PER_FRAME/INPUT_CHANNELS=99 在此定义）
+@dataclass(frozen=True)
+class NetworkConfig:
+    input_channels = 99; action_space_size = 8100
+    hidden_channels = 64; residual_blocks = 4   # 本地默认偏小；云端按 Stage A/B 调到 128/6
+    policy_head_channels = 32; value_head_channels = 32; value_fc_hidden = 128
+```
+
+```python
+# encoder.py — C = 99：最近 7 步 ×(己方 7 + 对方 7)=98，再 + 1 未吃子通道
+def encode(state: GameState) -> np.ndarray:
+    """返回 (99, 10, 9) 的 canonical 张量：当前走棋方永远在底部。
+    黑方走棋时：上下翻转棋盘 + 交换红黑通道；不足 7 步的历史用空局面补齐。"""
+
+def to_canonical_action(move: Move, color: Color) -> int: ...      # 真实走法 -> canonical action_id
+def from_canonical_action(action_id: int, color: Color) -> Move: ...  # 逆变换（翻转是对合运算）
+def legal_mask(position: Position) -> np.ndarray:
+    """(8100,) bool，canonical 坐标系下的合法动作 mask，与网络 policy 对齐。"""
+```
+
+```python
+# network.py — 纯 CNN，张量进出；不做 mask/softmax，train.py 直接复用算梯度
+class PolicyValueNet(nn.Module):
+    def __init__(self, config: NetworkConfig | None = None): ...
+    def forward(self, x):           # x: (B, 99, 10, 9)
+        return policy_logits, value  # (B, 8100), (B, 1) in [-1, 1]
+# trunk: Conv-BN-ReLU + ResidualBlock×N；policy/value 双头（见算法文档 §2）
+```
+
+```python
+# evaluator.py — 网络与 MCTS 之间的推理适配层，封装 canonical 视角
+class Evaluator:
+    def __init__(self, net: PolicyValueNet, device="cpu"): ...   # 构造即置 eval 模式（仅推理用）
+    def evaluate(self, state: GameState) -> tuple[dict[Move, float], float]:
+        """局面进 -> (priors, value)。priors 以真实 Move 为 key、覆盖合法走法、和为 1；
+        value 是当前走棋方视角的 [-1,1] 估值。内部完成 encode+device+合法动作 softmax。"""
+    def evaluate_batch(self, states): ...   # 预留：第一阶段只用单局面 evaluate
+```
+
+```python
+# mcts.py — 全程用真实 Move（不碰 canonical），叶节点经 Evaluator 取 (priors, value)
+class Node:
+    state: GameState                 # 必须是 GameState 而非 Position（终局判定依赖历史）
+    priors / visits / value_sums     # 按当前局面的合法走法存（m≈几十，远小于 8100）
+    children: dict[Move, Node]
+
+class MCTS:
+    def __init__(self, evaluator: Evaluator, config: MCTSConfig | None = None, rng=None):
+        self.root: Node | None = None       # 持有当前根以支持子树复用
+    def run(self, root_state: GameState) -> dict[Move, int]:
+        """跑 n_sim 次模拟，返回根节点各真实走法的原始访问次数 N(s,a)。
+        内部职责：c_puct、根节点 Dirichlet 噪声、PUCT 选择、单局面逐个评估展开、终局用真实胜负回传。
+        不负责温度与选招——只吐原始访问次数，怎么用交给上层。"""
+    def advance(self, move: Move) -> None:   # 落子后把对应子树提为新根（复用）；无对应子树则置空待重建
+    def reset(self) -> None:                 # 开新一局清空树
+# PUCT：score = Q + c_puct·P·sqrt(1+ΣN)/(1+N)；分子用 sqrt(1+ΣN) 保证首模拟也按先验展开。
+# value 符号：evaluate 返回"当前走棋方视角"估值，backup 交替取反；终局用 GameState.status() 真实胜负换算 ±1/0。
+```
+
+```python
+# selfplay.py
+@dataclass
+class Sample:
+    state: np.ndarray   # encode 后的 canonical 张量
+    pi: np.ndarray      # MCTS 访问分布
+    player: Color       # 该样本走棋方
+    z: float = 0.0      # 终局后回填：该走棋方视角的 +1/0/-1
+
+def play_game(net, config) -> list[Sample]: ...
+
+# 温度 / 选招在 selfplay，不在 MCTS：
+#   counts = mcts.run(state)                 # dict[Move, int]，MCTS 只给原始访问次数
+#   tau = 1.0 if ply < switch_ply else 0.0   # 温度依赖手数，是对局层信息
+#   move = argmax(counts) if tau == 0 else sample(counts ** (1/tau) / Z)   # 选真实 Move 落子
+#   pi_target[to_canonical_action(m, color)] = N / sum(N)  # 用 τ=1 归一化并转到 canonical 动作空间
+# 两个分布别混：实际选招分布(带温度,真实Move)只决定这步走哪；pi_target(canonical 8100)才进样本。
+```
+
+```python
+# replay.py
+class ReplayBuffer:           # 第一阶段 collections.deque(maxlen=capacity)
+    def add(self, samples): ...
+    def sample(self, batch_size) -> Batch: ...
+
+# train.py
+def train_step(net, optimizer, batch) -> dict:
+    # loss = mse(v, z) + cross_entropy(pi, p) + L2(由 optimizer weight_decay 实现)
+    ...
+```
+
+## 4. 关键问题（实现时最易踩坑）
+
+1. **节点持 `GameState`，不是 `Position`**：长将/长捉/重复判和依赖历史，终局判定必须走 `GameState.status()`。
+2. **canonical 视角 + z 的符号**：黑方走棋时翻转棋盘并交换红黑通道，使网络永远从"己方在底部"的视角看局面。`engine` 的 `status().winner` 是 `Color`，selfplay 回填 z 时要转成"该样本走棋方视角"的 ±1/0。
+3. **编码需要历史**：C=99 含最近 7 步，encoder 从 `GameState.history` 取最近若干 `MoveRecord` 重建历史局面，开局不足 7 步用空局面补齐。
+4. **device-agnostic**：`torch.device` 全程可配置，本地默认 CPU 验证正确性，云端切 GPU；不在代码里写死设备。
+5. **性能瓶颈在规则引擎**：`legal_moves()` 对每个走法都 `_apply_move` + 全盘 `is_in_check`，MCTS 会反复调用。第一阶段先用单局面逐个评估（实现简单）跑通正确性，性能优化（batch 评估、缓存、Zobrist）留到后续。
+6. **MCTS 树是运行时缓存**：落盘的是训练样本 `(s, π, z)`，不是整棵树。已实现 subtree reuse：`run()` 持有 `self.root`，selfplay 落子后调 `advance(move)` 把对应子树提为新根，保留其访问统计；新根再撒一次 Dirichlet 噪声（噪声只加在根，内部节点不加）。`advance` 找不到对应子树时置空，下次 `run` 从新局面重建。
+7. **温度/选招的归属**：`c_puct`、Dirichlet 噪声属于"搜索过程"，在 MCTS 内部；温度 τ、采样还是 argmax 属于"对结果的后处理"，依赖手数与自对弈/评估场景，放在 selfplay。`mcts.run()` 只返回原始访问次数 `N(s,a)`，保持纯粹。训练目标 `pi` 固定用 τ=1 的归一化访问次数，与带温度的选招分布解耦。
+
+## 5. 实现顺序（最小闭环）
+
+```text
+1. encoder.py     局面 -> (99,10,9) 张量 + legal mask，配单元测试验证翻转/通道
+2. network.py     双头 CNN，能 forward 出 (8100) logits 与 value
+3. mcts.py        Node + PUCT + 单评估展开 + 回传，能返回 pi
+4. selfplay.py    跑通一盘自对弈，产出带 z 的样本
+5. replay.py      内存 buffer：add / sample
+6. train.py       train_step，验证 loss 能下降
+7. pipeline.py    自对弈 <-> 训练 循环跑起来
+```
+
+后续阶段再加：`evaluate.py`（胜率 > 0.55 才换代）、checkpoint 续训、TensorBoard 监控、人机对战 `play.py`、性能优化与 batch 评估。

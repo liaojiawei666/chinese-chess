@@ -1,0 +1,209 @@
+---
+alwaysApply: false
+description: AlphaZero 风格自对弈训练的时间复杂度与性能瓶颈分析（自底向上：规则引擎 → 网络 → MCTS → 自对弈 → 训练迭代）。
+---
+
+# 训练：时间复杂度与性能瓶颈
+
+本文聚焦"训练为什么慢、慢在哪"。先给训练全貌，再**自底向上**逐层算时间复杂度（规则引擎 → 编码/前向 → MCTS → 自对弈 → 训练一步），最后给瓶颈排序与优化方向。符号在用到处就近说明，不集中罗列。算法"是什么"见 `docs/algorithm/02-implementation.mdc` 与 `mcts.mdc` / `policy-value-net.mdc`，此处不重复。
+
+---
+
+## 一、训练全貌
+
+一轮迭代 = **造数据**（自对弈）→ **学参数**（梯度下降），循环往复：
+
+```text
+pipeline:  ┌─ selfplay：play_game × G_games ─┐        ┌─ train：train_step × K ─┐
+   loop →  │   每盘 G 手，每手 mcts.run(n 次模拟) │ → replay → │   每步采 N_b 样本前向+反向 │ → loop
+           │   每次模拟 = 选择→评估→回传          │  buffer   └──────────────────────────┘
+           └────────────────────────────────────┘
+```
+
+一句话结论（后文逐步论证）：
+
+> **瓶颈不在梯度更新，而在数据生成**。造一个训练样本要付约 `n_simulations` 次网络评估，而消费它只需约一次批量前向。真正卡脖子的是纯 Python 的**规则引擎 `legal_moves()`**；以及自对弈推理**尚未批量化**（第一阶段先逐个局面评估跑通正确性，批量评估是计划中的优化），GPU 利用率偏低。
+
+---
+
+## 二、自底向上的时间复杂度
+
+### 2.1 规则引擎层（CPU、纯 Python，热点所在）
+
+棋盘 $H\times W=10\times 9$。记格数 $B=H\times W=90$、盘上棋子数 $P\le 32$、车/炮最长射程 $L\approx H+W=19$、伪合法（过滤将军前）走法数 $M$（$\ge$ 合法走法数，约 50~90）。
+
+| 函数 | 复杂度 | 说明 |
+| --- | --- | --- |
+| `_apply_move` | $O(B+P)$ | 整盘 `board` 深拷贝 + `piece_positions` 拷贝，每次校验都要做一份 |
+| `is_in_check` | $O(B+P\cdot L)$ | 扫全盘找敌子，逐个判是否攻击将帅（滑动子要走射线） |
+| `validate_move` | $O(B+P\cdot L)$ | 伪走法判定 + `_apply_move` + `_kings_face` + `is_in_check` |
+| **`legal_moves`** | $O(M\cdot(B+P\cdot L))$ | 对**每个**伪走法都做一次 `validate_move`（落子后试着照面/被将），**第一热点** |
+| `Position.status` | $O(M\cdot(B+P\cdot L))$ | 实质就是调一次 `legal_moves` |
+| `GameState.make_move` | $O(B+P\cdot L+t)$ | 含 `history` 列表与重复字典的拷贝（$t$ 为已走半回合数 $\le 300$），**随对局变长而增大** |
+| `GameState.status`（重复路径） | $O(P^2\cdot \text{legal})$ | 三次重复才触发长将/长捉分析（`attacked_targets` 嵌套校验），**罕见但尖刺** |
+
+核心代价公式（一次合法走法生成）：
+
+$$
+T_{\text{legal}} = O\big(M\cdot(B+P\cdot L)\big)
+$$
+
+- 含义：伪走法数 $M$ 乘以"每个走法做一次落子 + 全盘将军判定"的代价。$B$ 来自每次 `_apply_move` 的整盘拷贝，$P\cdot L$ 来自 `is_in_check` 的射线扫描。
+- 直观量级：$M\approx 60$、每次校验约 $B+P\cdot L\approx 200$ 次基本操作 → 单次 `legal_moves` 上万次纯 Python 操作。
+
+### 2.2 编码 + 网络前向层
+
+记 `hidden_channels`$=C$、`residual_blocks`$=R$、动作空间 $A=90\times 90=8100$、历史帧数 $N_\text{history}=7$。
+
+| 步骤 | 复杂度 | 说明 |
+| --- | --- | --- |
+| `encode` | $O(N_\text{history}\cdot B)=O(7B)$ | 从 `history` 重建 7 帧，无规则重算，相对便宜 |
+| 网络前向（单局面，主干） | $O(R\cdot C^2\cdot B)$ | $R$ 个残差块、每块两层 $3\times3$ 卷积 |
+| policy 头全连接 | $O(C_\text{pol}\cdot B\cdot A)$ | $32\cdot 90\cdot 8100\approx 2.3\times 10^7$ MACs |
+| value 头 | $O(C\cdot C_\text{val}\cdot B)$ | 远小于上两项 |
+
+单局面前向总代价：
+
+$$
+F = O\big(\underbrace{R\,C^2 B}_{\text{主干卷积}} + \underbrace{C_\text{pol}\,B\,A}_{\text{policy 全连接}}\big)
+$$
+
+- 反直觉点：默认 $C=64$ 较小，**policy 头那条 $B\cdot A=90\times 8100$ 的全连接反而是单局面前向的最大项**（约 $2.3\times 10^7$ MACs），主干卷积约 $3\times 10^7$ 量级、二者同阶。$C$ 调大后主干才占主导。
+- 关键：第一阶段 MCTS 里逐个局面调用（即 batch=1）跑通正确性，GPU 利用率低、每次还有 Python/算子分发固定开销。**批量化是计划要做的**（攒多个叶子一次前向，见 §五），batch 大小按显存与吞吐按实际情况调，不固定为 1。
+
+### 2.3 MCTS 层
+
+记单次模拟的树深度 $d$、当前局面合法走法数 $m$、每手模拟数 $n=$`n_simulations`（默认 200）。单次模拟 `_simulate`（选择 → 评估 → 回传）：
+
+$$
+T_\text{sim}=O\big(\underbrace{d\cdot m}_{\text{选择}} + \underbrace{(B+P\cdot L+t)}_{\text{新建叶节点 make\_move}} + \underbrace{T_\text{legal}}_{\text{status/evaluate}} + \underbrace{F}_{\text{前向}} + \underbrace{7B}_{\text{encode}} + \underbrace{d}_{\text{回传}}\big)
+$$
+
+主导项是 $T_\text{legal}$（规则）与 $F$（前向）。**注意一处冗余**：叶子求值时 `_evaluate` 先调 `state.status()`（一次 `legal_moves`），非终局再进 `evaluator.evaluate`，其内部又调一次 `legal_moves` —— 同一局面**算了两遍合法走法**。
+
+一次 `run`（$n$ 次模拟）：
+
+$$
+T_\text{run}=O\big(n\cdot(T_\text{legal}+F)\big)
+$$
+
+> 子树复用（`advance`）只是保留已有统计、少做无用功，属常数因子优化；每手仍按 $n$ 次新模拟预算，不改变上面的阶。
+
+### 2.4 自对弈一局
+
+一局 $G$ 手（半回合，约 100~300），每手一次 `run`：
+
+$$
+T_\text{game}=O\big(G\cdot n\cdot(T_\text{legal}+F)\big)
+$$
+
+附带两点随对局增长的代价：`make_move` 的 $O(t)$ 历史拷贝逐手变大；每个树节点各持一份带完整 `history` 的 `GameState`，内存约 $O(\text{nodes}\cdot t)$。
+
+### 2.5 训练一步 vs 一轮迭代
+
+记训练 batch 大小 $N_b$。
+
+| 阶段 | 复杂度 | 设备/批量 |
+| --- | --- | --- |
+| `train_step`（一批） | $O(N_b\cdot F_\text{batch})$，反向≈2×前向 → $O(3N_b F)$ | GPU、**批量**，高利用率 |
+| 造一批同等样本 | $O(N_b\cdot n\cdot(T_\text{legal}+F))$ | CPU+GPU、当前逐个评估（批量化待实现），利用率低 |
+
+---
+
+## 三、核心结论：数据生成 ≫ 梯度更新
+
+把"产出 1 个样本"与"消费 1 个样本"的前向工作量相比：
+
+$$
+\frac{\text{造 1 个样本}}{\text{训练消费 1 个样本}}\;\approx\;\frac{n\ \text{次评估}}{\approx 1/N_b\ \text{次批量前向}}
+$$
+
+- 产出 1 个 `(s,π,z)` 样本要跑一次 `run`，即约 $n$ 次网络评估 + $n$ 次 `legal_moves`；训练时消费它，只占一个 $N_b$ 批量前向+反向里的 $1/N_b$。
+- 因此墙钟时间里**自对弈占绝对大头**。优化训练速度 = 优化自对弈，而非优化 `train_step`。当前自对弈的评估还**逐个进行**（未批量化），更放大了这一差距——批量化与减少规则开销正是优化重点。
+
+---
+
+## 四、性能瓶颈排序
+
+| # | 瓶颈 | 根因 | 量级 | 代码位置 |
+| --- | --- | --- | --- | --- |
+| 1 | **规则引擎 `legal_moves`** | 每个伪走法都整盘拷贝 + 全盘将军扫描；纯 Python | 每手 $\sim n$ 次、每次 $O(M(B+P L))$ | `engine.Position.legal_moves` / `is_in_check` |
+| 2 | **推理尚未批量化** | `evaluate_batch` 未实现，MCTS 逐叶求值（batch=1），GPU 闲置 + 分发开销 | 每手 $\sim n$ 次单局面前向 | `evaluator.evaluate`（`evaluate_batch` 抛 `NotImplementedError`） |
+| 3 | **合法走法重复计算** | `_evaluate` 的 `status()` 与 `evaluate` 各算一次 `legal_moves` | 叶子求值 ×2 | `mcts._evaluate` + `evaluator.evaluate` |
+| 4 | **自对弈串行单进程** | 无多局/多模拟并行，CPU 多核未用 | 线性叠加 | `selfplay`（待实现）/ `pipeline` |
+| 5 | **`make_move` 拷贝历史** | 每建节点深拷贝 `history`+重复字典，$O(t)$ 随局变大 | 每次模拟 ×1，内存 $O(\text{nodes}\cdot t)$ | `engine.GameState.make_move` |
+| 6 | **无评估缓存 / 无 Zobrist** | 重复局面反复 encode+前向+判合法 | 与重复率成正比 | 全链路缺 transposition/eval cache |
+| 7 | **长将/长捉分析尖刺** | 三次重复触发 $O(P^2)$ 嵌套校验 | 罕见、尾延迟 | `GameState._is_perpetual_chase` |
+
+---
+
+## 五、优化方向
+
+| 优化 | 针对瓶颈 | 预期收益 | 代价/风险 |
+| --- | --- | --- | --- |
+| **批量叶子求值**（virtual loss 收集多叶 → 一次前向）+ 实现 `evaluate_batch`，batch 大小按实际调 | #2 | GPU 利用率与吞吐数量级提升 | 改 MCTS 调度，引入虚拟损失 |
+| **缓存 `legal_moves`/`status` 到 Node**（一次算、status 与 evaluate 共用） | #1 #3 | 直接砍掉约一半规则开销 | 需保证按局面唯一缓存 |
+| **增量将军判定 / bitboard / 攻击表**，避免每次整盘拷贝 | #1 #5 | `legal_moves` 常数大幅下降 | 引擎重写，正确性回归成本高 |
+| **多进程自对弈** + 共享推理服务（集中攒大 batch） | #2 #4 | 近线性扩展到多核/多卡 | 进程通信、批调度复杂度 |
+| **Zobrist 哈希 + 置换表/评估缓存** | #6 | 跳过重复局面的前向与判合法 | 哈希冲突处理、缓存失效 |
+| **持久化/增量历史**（存 delta，不深拷贝 `history`） | #5 | 去掉 $O(t)$ 拷贝、降内存 | 数据结构改造 |
+| GPU + fp16 推理 | #2 | 前向更快 | **配合批量化才划算**（单局面 batch=1 收益有限） |
+
+> 与 `02-implementation.mdc §4.5` 一致：第一阶段先用"单局面逐个评估"跑通正确性，批量评估、缓存、Zobrist、并行留到性能优化阶段；上表即该阶段的落地清单。
+
+---
+
+## 附：QA
+
+### Q1. 子树复用能把复杂度降下来吗？
+
+不能改变阶，只省常数。`advance(move)` 把落子对应的子树提为新根，保留其 $(N,W)$ 统计，避免重复展开那部分；但每手仍按 `n_simulations` 预算跑新模拟，所以 $T_\text{game}=O(G\cdot n\cdot(T_\text{legal}+F))$ 不变。它的价值是"少做无用功 + 复用先验"，属常数因子。
+
+### Q2. 把网络搬到 GPU 就能快吗？
+
+要先批量化再上 GPU。第一阶段 MCTS 内是逐个局面（batch=1）求值，此时 GPU 收益有限：每次只算一个局面，算子分发与 H2D/D2H 拷贝的固定开销可能盖过算力优势，甚至比 CPU 还慢。**正确顺序是先实现批量求值（#2）**——把同一波待求值的叶子攒成一个 batch（大小按显存/吞吐实际调）一次前向，GPU 的并行算力才用得上，fp16 也才划算。
+
+### Q3. 为什么说瓶颈在引擎而不是网络？
+
+两点：其一，`legal_moves` 是纯 Python、每手 $\sim n$ 次、每次上万基本操作，且被 `status` 与 `evaluate` 重复调用；其二，网络的前向可以通过批量化交给 GPU 高效消化，而引擎的串行 Python 开销难以被并行摊薄。所以在批量化落地之前，CPU 侧的规则判定通常是墙钟时间的首要拖累。
+
+---
+
+## 六、具体机器估算：RTX 3070 + i7-14700K + 32GB
+
+假设：网络 $C{=}128,R{=}6$（单局面前向 ≈ 194M MAC ≈ **0.39 GFLOP**，其中主干 ~159M、policy FC ~23.3M）；推理已批量化、batch=128；自对弈开 ~16 个 worker 进程并发（绕开 GIL，尽量打满 CPU/GPU）；$n_\text{sim}=200$。数值为数量级估算，落地前应 `cProfile` 实测校准。
+
+| 指标 | 估算值 | 依据 / 说明 |
+| --- | --- | --- |
+| **GPU 算力**（RTX 3070） | FP32 20.3 TFLOPS；FP16 Tensor ~163 TFLOPS（小模型小空间，有效按 ~40 TFLOPS 折算） | Ampere GA104，8GB；10×9 空间太小，卷积是小 GEMM，利用率打折 |
+| **单 batch 运算量**（batch=128，仅前向） | ~**49.7 GFLOP**（0.39 GFLOP/局面 ×128） | 自对弈推理无反向 |
+| **GPU 预估耗时** | ~**1.5 ms/批** → ~12 µs/局面 → ~**85,000 局面/s** | 49.7 GFLOP ÷ 40 TFLOPS + kernel 启动/同步开销 |
+| **CPU 算力**（i7-14700K） | 8P+12E=20 核/28 线程，FP32 峰值 ~2 TFLOPS（无 AVX-512） | 但 `legal_moves` 是**标量纯 Python**，吃不到 SIMD，看的是解释器吞吐 |
+| **legal_moves 算力** | ~**2 ms/次**（单 P 核，高频强 IPC）→ ~500 次/s/核 → 全核 ~1 万次/s | ~50 伪走法 ×（整盘深拷贝 ~25µs + 全盘将军扫描 ~55µs） |
+| **CPU 预计耗时** | 每叶评估 ~**4–5 ms**（status+evaluate 共 2 次 `legal_moves`）→ 16 进程合计 ~**3,000–3,500 局面/s** | P 核 ~220 叶/s、E 核 ~120 叶/s 累加 |
+| **内存预估** | ~**9–10 GB**（32GB 充裕） | 见下方拆解；replay buffer 是最大变量 |
+
+### 6.1 CPU/GPU 平衡：CPU 先打满，GPU 打不满
+
+$$
+\text{GPU 可吞} \approx 85{,}000\ \text{局面/s}\quad\gg\quad \text{CPU 可产出} \approx 3{,}200\ \text{局面/s}
+$$
+
+- 二者差 ~**25×**：即便 batch 开到 128、16 进程全开，GPU 利用率也只有 $3200/85000\approx\textbf{4\%}$。3070 对这台机器**绰绰有余**，瓶颈在 CPU 规则引擎。
+- batch=128 其实已**超过** CPU 的喂数据能力（攒满 128 个叶子 CPU 要 ~40 ms，GPU 1.5 ms 就算完、然后空等）。所以 batch 不必再大；配合更多 worker、把 batch 降到 ~32–64 反而降延迟，对吞吐无损。
+- **自对弈吞吐**：$3200 \div (200\,\text{sim}\times 200\,\text{手}) \approx 0.08\ \text{局/s} \approx$ **~5 局/min ≈ ~7,000 局/天**（全核满载）。
+
+### 6.2 内存拆解
+
+| 项 | 单份 | ×并发 | 小计 |
+| --- | --- | --- | --- |
+| 模型权重 FP32 | ~103 MB（25.7M 参数，**policy FC 占 23.3M**） | ×16 进程 | ~1.6 GB |
+| MCTS 树 | ~100–125 MB/局（~4,000 活跃节点 ×~25 KB；`MoveRecord` 跨节点共享，仅 `history` 列表/重复字典增量拷贝） | ×16 局 | ~2 GB |
+| replay buffer | 原始 ~68 KB/样本（state 35.6KB + π 32.4KB）；**压缩后 ~10 KB**（state 存 int8/bitpack、π 存稀疏） | 50 万样本 | ~5 GB（不压缩则 ~34 GB **会爆**） |
+| 合计 | | | **~9–10 GB** |
+
+### 6.3 结论
+
+- 这台机器是**彻底的 CPU-bound**：3070 在 batch=128 下仅 ~4% 利用率，i7-14700K 的纯 Python 规则判定（~3,200 局面/s）卡住整条流水线。
+- 性价比最高的不是换更强 GPU，而是**砍 CPU 侧规则开销**：先做 §五 的"缓存 `legal_moves`/`status`"（去掉每叶 2× 重复，CPU 吞吐近乎翻倍 → ~6,000+ 局面/s、自对弈提到 ~10 局/min）；若仍不够，再上 bitboard/增量将军判定，把单次 `legal_moves` 从 ~2 ms 压到几十 µs。
+- replay buffer **必须压缩存储**（int8 state + 稀疏 π），否则 32GB 放不下几十万样本。

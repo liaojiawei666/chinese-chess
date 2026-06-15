@@ -1,0 +1,180 @@
+---
+alwaysApply: false
+---
+
+# 策略-价值网络：基础知识串讲
+
+围绕本项目策略-价值网络（`src/network.py` 的 `PolicyValueNet` 与 `src/evaluator.py`）用到的全部基础概念，自底向上、先前向后反向地串一遍。
+
+写作约定：每节 = 一张图 + 一条核心公式 + 简短文字。
+
+---
+
+### 一、看懂网络（前向，自底向上）
+
+**1. 网络全景 + 张量与通道**
+
+先看整体数据流，后面每一节都是这张图里某一块的放大：
+
+![策略-价值网络全景](./diagrams/exports/policy-value-net-overview.svg)
+
+- 主干（Stem + 残差塔）把输入局面提炼成**共享特征图**；policy 头输出每个动作的原始分值，value 头输出当前方胜负倾向，两头共用主干这一份输出。
+- 全程不做池化：trunk 用 `padding=1` 保持 10×9 尺寸，到 head 才 Flatten；mask/softmax 不在网络内，由 Evaluator 处理。
+
+网络的输入不是一张棋盘图片，而是一摞 0/1 平面——每个通道是一张 10×9 的位置图（某类棋子在该格则为 1，否则为 0）：
+
+![输入张量与通道结构](./diagrams/exports/tensor-channels.svg)
+
+$$
+s \in \mathbb{R}^{C \times 10 \times 9}, \quad C = 99
+$$
+
+- 维度按 **NCHW** 约定：`N`=一批多少张、`C`=99 通道、`H`=10 行、`W`=9 列。
+- 一帧 = 14 通道：行棋方 7 类棋子（帅/车/马/炮/仕/相/兵）+ 非行棋方 7 类（将/车/马/炮/士/象/卒）；叠「当前局 + 前 6 手」共 7 帧（98 通道），再加 1 个未吃子通道，合计 99。
+- 棋盘已转成「行棋方视角」：当前要走的一方固定在下方，网络无需区分红黑，只看「行棋方 / 非行棋方」。
+
+**2. 线性层：weight 与 bias**
+
+神经网络的最小计算单元是一个神经元：把输入加权求和，再加一个偏置。把 m 个神经元并排，就是一层全连接 `Linear`：
+
+![从神经元到全连接层](./diagrams/exports/linear-neuron.svg)
+
+$$
+z_j = \sum_{i} W_{ji}\, x_i + b_j, \qquad y = W x + b
+$$
+
+- **weight $W$**：连接强度，$W_{ji}$ 是第 $i$ 个输入对第 $j$ 个神经元的权重；一层的 $W$ 是 $m\times n$ 矩阵（每行对应一个神经元）。
+- **bias $b$**：每个神经元一个可学习的「平移量 / 阈值」，让输出不被强制过原点，决策边界能整体上下移动。
+- **Flatten**：主干输出的特征图是 $C\times H\times W$，先摊平成一维向量，才能送进两个头里的 `Linear`。
+
+**3. 卷积（Conv2d）**
+
+棋盘是二维网格，相邻棋子才有战术关系。卷积只看一个小邻域（局部连接），并让同一个核滑遍整图（权重共享），天然契合这种结构，参数也远少于全连接：
+
+![卷积一步：局部块⊙卷积核→求和](./diagrams/exports/conv2d.svg)
+
+$$
+y_{c,h,w} = \sum_{k,u,v} W_{c,k,u,v}\, x_{k,\,h+u,\,w+v} + b_c
+$$
+
+- **一步运算**：取输入的 $3\times3\times K$ 局部块，与卷积核逐元素相乘、跨所有通道求和、加偏置 $b$，得到一个输出像素；核滑遍每个位置就填满整张输出图。
+- **通道**：输入 $K$ 个通道一起参与求和；一个核产生一个输出通道，$C_\text{out}$ 个核就得到 $C_\text{out}$ 个通道。
+- **保尺寸**：本网络用 `kernel=3, padding=1, stride=1`，输出仍是 $10\times9$，不下采样。
+- **感受野**：层数越深，一个输出能间接看到的原始棋盘范围越大，从局部子力关系逐渐扩展到全局棋形。
+
+**4. 激活函数**
+
+线性层只会做加权求和，再多层叠起来还是一层线性。激活函数提供**非线性**，网络才学得出复杂棋形：
+
+![ReLU 与 tanh 曲线](./diagrams/exports/activations.svg)
+
+$$
+\mathrm{ReLU}(x)=\max(0,x), \qquad \tanh(x)=\frac{e^{x}-e^{-x}}{e^{x}+e^{-x}}\in(-1,1)
+$$
+
+- **ReLU**：负半轴归零、正半轴恒等；简单、计算快、缓解梯度消失，用在主干每个 `Conv-BN` 之后。
+- **tanh**：把数值压到 $(-1,1)$，正好对应「当前方胜负倾向」（+1 必胜 / −1 必负），用在 value 头输出。
+- 没有激活函数，前面讲的卷积/全连接堆再多层也等价于单层线性，表达能力被锁死。
+
+**5. BatchNorm**
+
+随着网络变深，各层输出分布会不断漂移，训练变难。BatchNorm 按通道把输出归一化，再用可学习的 $\gamma,\beta$ 缩放平移：
+
+![BatchNorm 计算流](./diagrams/exports/batchnorm.svg)
+
+$$
+\hat{x}=\frac{x-\mu}{\sqrt{\sigma^{2}+\epsilon}}, \qquad y=\gamma\,\hat{x}+\beta
+$$
+
+- **作用**：把每个通道拉回均值≈0、方差≈1，稳住分布、加速收敛，并降低对初始化和学习率的敏感。
+- **train / eval 差异**：训练用当前 batch 的 $\mu,\sigma^2$，并累积 running 统计；推理用累积的 running 均值/方差，使输出不依赖同批的其他样本。
+- **Conv 关 bias**：BN 第一步就减均值，会抵消前面 conv 的 $b$，所以 `Conv-BN` 里 conv 设 `bias=False`（省参数、不影响结果）。
+
+**6. 残差连接**
+
+网络太深时会出现「退化」：再加层反而更难训、梯度也容易消失。残差块在主路 $\mathcal{F}(x)$ 之外加一条恒等跳连，让网络只需学习「残差」：
+
+![残差块结构](./diagrams/exports/residual-block.svg)
+
+$$
+y=\mathrm{ReLU}\big(\mathcal{F}(x)+x\big),\quad \mathcal{F}(x)=\text{Conv-BN-ReLU-Conv-BN}
+$$
+
+- **主路** $\mathcal{F}(x)$：两层 `Conv3×3-BN`，中间一个 ReLU；相加后再过一个 ReLU。
+- **跳连**：把输入 $x$ 原样加到主路输出，反向传播时梯度可经这条「高速公路」直达浅层，缓解梯度消失与退化。
+- 正因如此，主干能安全堆叠多个残差块（本网络 `residual_blocks` 个）而不退化。
+
+**7. 双头输出**
+
+主干提炼出的特征图，被两个任务头共用：一个判断「该走哪」，一个判断「这局怎么样」：
+
+![双头输出结构](./diagrams/exports/dual-head.svg)
+
+$$
+p_a=\frac{\exp(l_a)}{\sum_{b\in \text{legal}}\exp(l_b)}, \qquad v=\tanh(\cdot)\in[-1,1]
+$$
+
+- **policy 头**：`1×1 Conv-BN-ReLU` → Flatten → Linear，输出 8100 个动作的 logits；合法动作 mask + softmax 后得概率 $p$，用来指导 MCTS。
+- **value 头**：`1×1 Conv-BN-ReLU` → Flatten → 两层 FC → tanh，输出当前方胜负估值 $v\in[-1,1]$。
+- **mask/softmax 不在网络内**，由 Evaluator 完成；网络只吐原始 logits，训练时直接拿 logits 算交叉熵更方便（见 §8）。
+
+### 二、网络怎么学（反向）
+
+**8. 损失函数**
+
+损失函数衡量「预测和目标差多远」，是训练的优化目标。本网络两个头各有一项损失，再加一项正则：
+
+![总损失三项汇总](./diagrams/exports/loss.svg)
+
+$$
+\mathcal{L}=(z-v)^2-\sum_a \pi_a\log p_a+\lambda\lVert\theta\rVert_2^2
+$$
+
+- **policy：交叉熵** $-\sum_a \pi_a\log p_a$，让预测分布 $p$ 贴近 MCTS 搜索得到的 $\pi$（更可靠的「老师」）。
+- **value：MSE** $(z-v)^2$，让估值 $v$ 贴近这盘棋的真实结果 $z$（+1 胜 / 0 和 / −1 负）。
+- **L2 正则** $\lambda\lVert\theta\rVert_2^2$：惩罚过大权重，抑制过拟合。三项相加成一个标量 $\mathcal{L}$，供反向传播。
+
+**9. 梯度与反向传播**
+
+有了损失 $\mathcal{L}$，还要知道每个参数该往哪调——这就是梯度。反向传播用链式法则，从损失出发逐层往回算梯度：
+
+![前向与反向传播](./diagrams/exports/backprop.svg)
+
+$$
+\frac{\partial \mathcal{L}}{\partial w}=\frac{\partial \mathcal{L}}{\partial y}\cdot\frac{\partial y}{\partial w}
+$$
+
+- **梯度**：损失对某参数的偏导，指明把该参数往哪调能让 $\mathcal{L}$ 下降。
+- **反向传播**：把后层传来的梯度逐层相乘往回传（链式法则），一次回传就得到所有参数的梯度。
+- **autograd**：PyTorch 前向时记录计算图，调用 `loss.backward()` 自动完成上述回传，无需手推公式。
+
+**10. 梯度下降与优化器**
+
+有了梯度，就朝损失下降最快的方向（负梯度）一步步更新参数，直到逼近最小值：
+
+![损失面上的梯度下降](./diagrams/exports/gradient-descent.svg)
+
+$$
+\theta \leftarrow \theta-\eta\,\nabla_\theta \mathcal{L}
+$$
+
+- **学习率 $\eta$**：每步走多远。太大会震荡甚至发散，太小则收敛慢。
+- **动量**：累积历史梯度方向，像惯性一样加速收敛、越过小坑（SGD+momentum）。
+- **mini-batch**：每步用一小批样本估计梯度，兼顾速度与稳定（不必遍历全部数据）。
+- **梯度裁剪**：限制梯度范数上限，防止偶发的大梯度把参数一步带飞。
+
+### 三、训练起步前提
+
+**11. 参数初始化**
+
+放在压轴，是因为它同时关系前向与反向：训练还没开始，权重的初始尺度就决定了信号能否稳定地穿过深层网络：
+
+![不同初始化下逐层方差](./diagrams/exports/init.svg)
+
+$$
+W\sim U(-\sqrt{k},\sqrt{k}),\quad k=\frac{1}{\text{fan\_in}}
+$$
+
+- **太大**：前向方差逐层放大、反向梯度爆炸；**太小**：信号逐层衰减、梯度消失。
+- **Kaiming/He 初始化**：按输入维度 `fan_in` 缩放权重，使各层激活方差大致守恒，正好配合 ReLU。
+- **BN 起步** $\gamma=1,\beta=0$ 进一步稳住分布。PyTorch 对 `Conv2d/Linear` 默认即采用此类初始化，所以代码里没有显式写初始化。

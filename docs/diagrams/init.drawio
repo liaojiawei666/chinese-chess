@@ -1,0 +1,28 @@
+<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="760" pageHeight="360" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：初始化的尺度决定逐层方差是爆炸、消失还是稳定" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=16;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="20" y="12" width="720" height="28" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="yaxis" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="90" y="270" as="sourcePoint"/><mxPoint x="90" y="64" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="xaxis" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="90" y="270" as="sourcePoint"/><mxPoint x="440" y="270" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ylbl" value="激活 / 梯度方差" style="text;html=1;horizontal=0;strokeColor=none;fillColor=none;fontColor=#888888;fontSize=11;align=center;" vertex="1" parent="1"><mxGeometry x="56" y="90" width="20" height="160" as="geometry"/></mxCell>
+    <mxCell id="xlbl" value="网络深度（层）→" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#888888;fontSize=11;align=center;" vertex="1" parent="1"><mxGeometry x="200" y="274" width="160" height="18" as="geometry"/></mxCell>
+
+    <mxCell id="explode" style="endArrow=none;html=1;strokeColor=#b85450;strokeWidth=2.5;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="100" y="178" as="sourcePoint"/><mxPoint x="425" y="74" as="targetPoint"/><Array as="points"><mxPoint x="190" y="150"/><mxPoint x="280" y="112"/><mxPoint x="360" y="86"/></Array></mxGeometry></mxCell>
+    <mxCell id="vanish" style="endArrow=none;html=1;strokeColor=#999999;strokeWidth=2.5;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="100" y="178" as="sourcePoint"/><mxPoint x="425" y="252" as="targetPoint"/><Array as="points"><mxPoint x="190" y="210"/><mxPoint x="280" y="232"/><mxPoint x="360" y="246"/></Array></mxGeometry></mxCell>
+    <mxCell id="stable" style="endArrow=none;html=1;strokeColor=#2e8b57;strokeWidth=2.5;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="100" y="168" as="sourcePoint"/><mxPoint x="425" y="166" as="targetPoint"/><Array as="points"><mxPoint x="260" y="167"/></Array></mxGeometry></mxCell>
+
+    <mxCell id="lexp" value="太大 → 方差逐层爆炸" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#b85450;fontSize=11;fontStyle=1;align=left;" vertex="1" parent="1"><mxGeometry x="432" y="64" width="150" height="18" as="geometry"/></mxCell>
+    <mxCell id="lsta" value="合适(Kaiming) → 方差稳定" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#2e8b57;fontSize=11;fontStyle=1;align=left;" vertex="1" parent="1"><mxGeometry x="432" y="158" width="170" height="18" as="geometry"/></mxCell>
+    <mxCell id="lvan" value="太小 → 方差逐层消失" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#777777;fontSize=11;fontStyle=1;align=left;" vertex="1" parent="1"><mxGeometry x="432" y="244" width="150" height="18" as="geometry"/></mxCell>
+
+    <mxCell id="fbox" value="Kaiming/He 初始化：&#10;W ~ U(−√k, √k),  k = 1 / fan_in&#10;BN 起步：γ = 1, β = 0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e7f2e4;strokeColor=#2e8b57;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="600" y="190" width="150" height="74" as="geometry"/></mxCell>
+
+    <mxCell id="key" value="训练开始前的权重数值很关键：太大会让前向方差逐层放大、反向梯度爆炸；太小会让信号逐层衰减、梯度消失。Kaiming/He 初始化按 fan_in 缩放权重，使各层激活方差大致守恒；配合 BN（γ=1, β=0 起步）更稳。PyTorch 对 Conv/Linear 默认即采用此类初始化。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="20" y="300" width="720" height="48" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

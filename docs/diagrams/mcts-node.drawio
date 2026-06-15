@@ -1,0 +1,25 @@
+<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="720" pageHeight="360" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：搜索树的节点与边各存什么" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=16;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="20" y="12" width="680" height="28" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="node" value="节点 = 局面 s&#10;（GameState）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="50" y="120" width="170" height="70" as="geometry"/></mxCell>
+    <mxCell id="nodenote" value="持 GameState 而非 Position：&#10;长将 / 长捉 / 重复判和依赖历史" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#777777;fontSize=11;align=left;" vertex="1" parent="1"><mxGeometry x="40" y="196" width="200" height="40" as="geometry"/></mxCell>
+
+    <mxCell id="ca" value="子局面（走 a₁）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="470" y="60" width="170" height="44" as="geometry"/></mxCell>
+    <mxCell id="cb" value="子局面（走 a₂）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="470" y="134" width="170" height="44" as="geometry"/></mxCell>
+    <mxCell id="cc" value="子局面（走 a₃）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="470" y="208" width="170" height="44" as="geometry"/></mxCell>
+
+    <mxCell id="ea" value="边 a₁：(P, N, W)" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;fontColor=#2a5d9c;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node" target="ca"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eb" value="边 a₂：(P, N, W)" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;fontColor=#2a5d9c;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node" target="cb"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="ec" value="边 a₃：(P, N, W)" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;fontColor=#2a5d9c;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node" target="cc"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <mxCell id="fields" value="每条边存：&#10;P 先验（网络给）&#10;N 访问次数&#10;W 累计价值&#10;Q = W / N 平均价值" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e7f2e4;strokeColor=#82b366;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;" vertex="1" parent="1"><mxGeometry x="270" y="250" width="180" height="96" as="geometry"/></mxCell>
+    <mxCell id="key" value="边只按当前合法走法存（几十条），远小于 8100 的完整动作空间，省内存也省计算。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="40" y="300" width="210" height="46" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

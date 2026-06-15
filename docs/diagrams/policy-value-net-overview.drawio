@@ -1,0 +1,86 @@
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="880" pageHeight="710" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：策略-价值网络全景（前向数据流；立方体=张量数据，圆角框=运算层）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=16;align=center;verticalAlign=middle;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="16" width="800" height="28" as="geometry"/>
+    </mxCell>
+    <mxCell id="n_in" value="输入张量&#10;99 × 10 × 9" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#222222;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="210" y="60" width="180" height="54" as="geometry"/>
+    </mxCell>
+    <mxCell id="trunk" value="主干 Trunk（提取共享特征）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0f7ec;strokeColor=#82b366;dashed=1;fontColor=#1e6b1e;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+      <mxGeometry x="165" y="148" width="270" height="174" as="geometry"/>
+    </mxCell>
+    <mxCell id="n_stem" value="Stem：Conv 3×3 + BN + ReLU&#10;（99 → hidden 通道，跑 1 次）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="185" y="186" width="230" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="n_res" value="残差塔：N × ResidualBlock" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="185" y="258" width="230" height="48" as="geometry"/>
+    </mxCell>
+    <mxCell id="res_note" value="N = residual_blocks（默认 4）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#777777;fontSize=10;align=center;" vertex="1" parent="1">
+      <mxGeometry x="185" y="306" width="230" height="14" as="geometry"/>
+    </mxCell>
+    <mxCell id="n_shared" value="共享特征图（张量）&#10;hidden × 10 × 9" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="210" y="348" width="180" height="56" as="geometry"/>
+    </mxCell>
+    <mxCell id="nopool" value="全程无池化层：trunk 用 padding=1 保持 10×9 空间尺寸，不下采样；直到 head 才 Flatten 成向量。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#222222;fontSize=11;align=left;verticalAlign=middle;spacingLeft=8;spacingRight=8;" vertex="1" parent="1">
+      <mxGeometry x="560" y="436" width="280" height="56" as="geometry"/>
+    </mxCell>
+    <mxCell id="p_head" value="Policy Head&#10;Conv 1×1 + BN + ReLU" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="65" y="440" width="210" height="48" as="geometry"/>
+    </mxCell>
+    <mxCell id="p_fc" value="Flatten → Linear" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="65" y="512" width="210" height="48" as="geometry"/>
+    </mxCell>
+    <mxCell id="p_out" value="Policy logits（8100 维）&#10;每个动作一个分值" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="65" y="584" width="210" height="52" as="geometry"/>
+    </mxCell>
+    <mxCell id="v_head" value="Value Head&#10;Conv 1×1 + BN + ReLU" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="325" y="440" width="210" height="48" as="geometry"/>
+    </mxCell>
+    <mxCell id="v_fc" value="Flatten → Linear → ReLU → Linear" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="325" y="512" width="210" height="48" as="geometry"/>
+    </mxCell>
+    <mxCell id="v_out" value="Tanh → Value&#10;∈ [-1, 1]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontColor=#222222;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="325" y="584" width="210" height="52" as="geometry"/>
+    </mxCell>
+    <mxCell id="inset" value="残差块内部（ResidualBlock）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7f7f7;strokeColor=#999999;dashed=1;fontColor=#555555;fontSize=12;fontStyle=1;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+      <mxGeometry x="560" y="148" width="280" height="270" as="geometry"/>
+    </mxCell>
+    <mxCell id="rb_in" value="输入 x" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;fillColor=#eeeeee;strokeColor=#999999;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="650" y="178" width="100" height="34" as="geometry"/>
+    </mxCell>
+    <mxCell id="rb_c1" value="Conv 3×3 + BN + ReLU" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="590" y="224" width="220" height="32" as="geometry"/>
+    </mxCell>
+    <mxCell id="rb_c2" value="Conv 3×3 + BN" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="590" y="268" width="220" height="32" as="geometry"/>
+    </mxCell>
+    <mxCell id="rb_add" value="＋" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=16;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="683" y="312" width="34" height="34" as="geometry"/>
+    </mxCell>
+    <mxCell id="rb_relu" value="ReLU → 块输出" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="590" y="360" width="220" height="32" as="geometry"/>
+    </mxCell>
+    <mxCell id="e1" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=1.6;" edge="1" parent="1" source="n_in" target="n_stem"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e2" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=1.6;" edge="1" parent="1" source="n_stem" target="n_res"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e3" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=1.6;" edge="1" parent="1" source="n_res" target="n_shared"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e4" value="policy 头" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;fontColor=#6c8ebf;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="n_shared" target="p_head"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e5" value="value 头" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=1.6;fontColor=#b85450;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="n_shared" target="v_head"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e6" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;" edge="1" parent="1" source="p_head" target="p_fc"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e7" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;" edge="1" parent="1" source="p_fc" target="p_out"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e8" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=1.6;" edge="1" parent="1" source="v_head" target="v_fc"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e9" style="endArrow=classic;html=1;strokeColor=#b85450;strokeWidth=1.6;" edge="1" parent="1" source="v_fc" target="v_out"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e_zoom" value="放大其中一个块" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1.4;dashed=1;fontColor=#777777;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="n_res" target="inset"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="rb_e1" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=1.4;" edge="1" parent="1" source="rb_in" target="rb_c1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="rb_e2" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=1.4;" edge="1" parent="1" source="rb_c1" target="rb_c2"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="rb_e3" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=1.4;" edge="1" parent="1" source="rb_c2" target="rb_add"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="rb_e4" style="endArrow=classic;html=1;strokeColor=#333333;strokeWidth=1.4;" edge="1" parent="1" source="rb_add" target="rb_relu"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="rb_skip" value="跳连 x" style="endArrow=classic;html=1;curved=1;strokeColor=#d79b00;strokeWidth=1.6;dashed=1;fontColor=#d79b00;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="rb_in" target="rb_add">
+      <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="828" y="195"/><mxPoint x="828" y="329"/></Array></mxGeometry>
+    </mxCell>
+    <mxCell id="key" value="主干（绿）= Stem + 残差塔；它输出「共享特征图」这一张量，被 policy 头（蓝）与 value 头（红）共用。mask/softmax 不在网络内，由 Evaluator 处理。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="40" y="656" width="800" height="38" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

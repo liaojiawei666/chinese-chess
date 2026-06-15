@@ -1,0 +1,24 @@
+<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="760" pageHeight="320" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：BatchNorm —— 按通道归一化，再缩放平移" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=16;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="30" y="12" width="700" height="28" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="xin" value="x&#10;（某通道 · 整批数据）" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1"><mxGeometry x="36" y="106" width="120" height="64" as="geometry"/></mxCell>
+    <mxCell id="norm" value="① 归一化&#10;x̂ = (x − μ) / √(σ² + ε)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="196" y="96" width="210" height="84" as="geometry"/></mxCell>
+    <mxCell id="norm_a" value="μ, σ²：训练用本批统计；推理用 running 统计" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#777777;fontSize=11;align=center;" vertex="1" parent="1"><mxGeometry x="186" y="184" width="230" height="18" as="geometry"/></mxCell>
+    <mxCell id="scale" value="② 缩放平移&#10;y = γ · x̂ + β" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="450" y="106" width="170" height="64" as="geometry"/></mxCell>
+    <mxCell id="scale_a" value="γ, β：可学习参数（初值 γ=1, β=0）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#777777;fontSize=11;align=center;" vertex="1" parent="1"><mxGeometry x="440" y="174" width="190" height="18" as="geometry"/></mxCell>
+    <mxCell id="yout" value="y" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=14;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="664" y="106" width="60" height="64" as="geometry"/></mxCell>
+
+    <mxCell id="e1" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;" edge="1" parent="1" source="xin" target="norm"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e2" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;" edge="1" parent="1" source="norm" target="scale"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e3" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;" edge="1" parent="1" source="scale" target="yout"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <mxCell id="key" value="作用：把每个通道拉回均值≈0、方差≈1，稳住各层分布、加速收敛，并降低对初始化和学习率的敏感；γ、β 再让网络按需缩放平移。训练用当前 batch 统计量，推理改用训练期累积的 running 均值/方差。Conv→BN：BN 第一步就减均值，会抵消 conv 的 bias，所以前面的 conv 设 bias=False。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="30" y="222" width="700" height="64" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

@@ -1,0 +1,40 @@
+<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="910" pageHeight="360" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：双头输出 —— 共享主干，分出 policy 头与 value 头" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=16;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="20" y="10" width="870" height="28" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="shared" value="共享特征图&#10;C × 10 × 9" style="shape=cube;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=12;fontStyle=1;size=8;" vertex="1" parent="1"><mxGeometry x="36" y="140" width="120" height="80" as="geometry"/></mxCell>
+
+    <mxCell id="plbl" value="policy 头" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#2a5d9c;fontSize=12;fontStyle=1;align=left;" vertex="1" parent="1"><mxGeometry x="200" y="44" width="100" height="18" as="geometry"/></mxCell>
+    <mxCell id="pc" value="1×1 Conv&#10;BN · ReLU" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=11;" vertex="1" parent="1"><mxGeometry x="200" y="66" width="110" height="48" as="geometry"/></mxCell>
+    <mxCell id="pf" value="Flatten&#10;+ Linear" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=11;" vertex="1" parent="1"><mxGeometry x="332" y="66" width="100" height="48" as="geometry"/></mxCell>
+    <mxCell id="plogits" value="动作 logits&#10;A = 8100" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="454" y="66" width="110" height="48" as="geometry"/></mxCell>
+    <mxCell id="pmask" value="合法动作 mask&#10;+ softmax&#10;（Evaluator 处理）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;fontColor=#555555;fontSize=11;" vertex="1" parent="1"><mxGeometry x="586" y="60" width="140" height="60" as="geometry"/></mxCell>
+    <mxCell id="pp" value="走子概率 p" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="748" y="66" width="120" height="48" as="geometry"/></mxCell>
+
+    <mxCell id="vlbl" value="value 头" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1e6b1e;fontSize=12;fontStyle=1;align=left;" vertex="1" parent="1"><mxGeometry x="200" y="214" width="100" height="18" as="geometry"/></mxCell>
+    <mxCell id="vc" value="1×1 Conv&#10;BN · ReLU" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=11;" vertex="1" parent="1"><mxGeometry x="200" y="238" width="110" height="48" as="geometry"/></mxCell>
+    <mxCell id="vf" value="Flatten" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=11;" vertex="1" parent="1"><mxGeometry x="332" y="238" width="90" height="48" as="geometry"/></mxCell>
+    <mxCell id="vfc" value="FC → ReLU&#10;→ FC" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=11;" vertex="1" parent="1"><mxGeometry x="442" y="238" width="110" height="48" as="geometry"/></mxCell>
+    <mxCell id="vtanh" value="tanh" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=11;" vertex="1" parent="1"><mxGeometry x="574" y="238" width="70" height="48" as="geometry"/></mxCell>
+    <mxCell id="vv" value="价值 v ∈ [−1, 1]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="666" y="238" width="140" height="48" as="geometry"/></mxCell>
+
+    <mxCell id="bp" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="shared" target="pc"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="bv" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="shared" target="vc"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="p1" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;" edge="1" parent="1" source="pc" target="pf"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="p2" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;" edge="1" parent="1" source="pf" target="plogits"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="p3" style="endArrow=classic;html=1;strokeColor=#999999;strokeWidth=1.6;dashed=1;" edge="1" parent="1" source="plogits" target="pmask"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="p4" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;" edge="1" parent="1" source="pmask" target="pp"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="v1" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;" edge="1" parent="1" source="vc" target="vf"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="v2" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;" edge="1" parent="1" source="vf" target="vfc"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="v3" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;" edge="1" parent="1" source="vfc" target="vtanh"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="v4" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;" edge="1" parent="1" source="vtanh" target="vv"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <mxCell id="key" value="两个头共用主干输出的同一份特征图（多任务）。policy 头给每个动作打分（logits）→ 合法动作 mask + softmax → 概率，用来指导 MCTS；value 头评估当前局面胜负，tanh 压到 [−1,1]。mask/softmax 不在网络内，由 Evaluator 完成，这样训练时可直接用 logits 算交叉熵。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="20" y="304" width="870" height="48" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

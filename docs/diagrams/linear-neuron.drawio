@@ -1,0 +1,38 @@
+<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="760" pageHeight="556" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：从单个神经元到全连接层（Linear）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=16;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="30" y="14" width="700" height="28" as="geometry"/>
+    </mxCell>
+    <mxCell id="ta" value="① 单个神经元 = 加权求和 + 偏置" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1e6b1e;fontSize=13;align=left;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="56" width="420" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="x1" value="x₁" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=13;" vertex="1" parent="1"><mxGeometry x="60" y="96" width="44" height="44" as="geometry"/></mxCell>
+    <mxCell id="x2" value="x₂" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=13;" vertex="1" parent="1"><mxGeometry x="60" y="150" width="44" height="44" as="geometry"/></mxCell>
+    <mxCell id="x3" value="xₙ" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=13;" vertex="1" parent="1"><mxGeometry x="60" y="204" width="44" height="44" as="geometry"/></mxCell>
+    <mxCell id="xdots" value="⋮" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#888888;fontSize=16;align=center;" vertex="1" parent="1"><mxGeometry x="60" y="186" width="44" height="20" as="geometry"/></mxCell>
+    <mxCell id="sum" value="z = w₁x₁ + w₂x₂ + … + wₙxₙ + b" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="230" y="138" width="220" height="64" as="geometry"/></mxCell>
+    <mxCell id="bias" value="b" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="318" y="262" width="44" height="44" as="geometry"/></mxCell>
+    <mxCell id="zout" value="z" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="520" y="148" width="44" height="44" as="geometry"/></mxCell>
+    <mxCell id="zact" value="→ 送入激活函数（见 §4）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#777777;fontSize=12;align=left;" vertex="1" parent="1"><mxGeometry x="582" y="158" width="170" height="24" as="geometry"/></mxCell>
+    <mxCell id="ex1" value="w₁" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.4;fontColor=#444444;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="x1" target="sum"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="ex2" value="w₂" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.4;fontColor=#444444;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="x2" target="sum"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="ex3" value="wₙ" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.4;fontColor=#444444;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="x3" target="sum"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eb" value="加上偏置" style="endArrow=classic;html=1;strokeColor=#d6b656;strokeWidth=1.4;fontColor=#a6822a;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="bias" target="sum"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="ez" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.4;" edge="1" parent="1" source="sum" target="zout"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="div" style="endArrow=none;html=1;strokeColor=#dddddd;strokeWidth=1;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="40" y="326" as="sourcePoint"/><mxPoint x="720" y="326" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="tb" value="② 全连接层 Linear = m 个这样的神经元并排（矩阵形式）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1e6b1e;fontSize=13;align=left;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="340" width="500" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="xvec" value="x&#10;(n 维)" style="shape=cube;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;size=8;" vertex="1" parent="1"><mxGeometry x="80" y="380" width="64" height="100" as="geometry"/></mxCell>
+    <mxCell id="wbox" value="y = W x + b" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=14;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="260" y="398" width="180" height="64" as="geometry"/></mxCell>
+    <mxCell id="yvec" value="y&#10;(m 维)" style="shape=cube;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=12;size=8;" vertex="1" parent="1"><mxGeometry x="540" y="390" width="64" height="80" as="geometry"/></mxCell>
+    <mxCell id="exv" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;" edge="1" parent="1" source="xvec" target="wbox"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="eyv" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;" edge="1" parent="1" source="wbox" target="yvec"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="wnote" value="W：m×n 权重矩阵（每行 = 一个神经元的权重）　b：m 维偏置" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#555555;fontSize=12;align=left;" vertex="1" parent="1"><mxGeometry x="640" y="402" width="110" height="56" as="geometry"/></mxCell>
+    <mxCell id="key" value="bias 的作用：给每个神经元一个可学习的「平移量 / 阈值」，让输出不被强制过原点，决策边界能上下移动。Flatten：本网络主干输出的特征图 (C×H×W) 先摊平成一维向量，再送进两个头里的 Linear。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="40" y="490" width="680" height="48" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

@@ -4,22 +4,15 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TypeAlias
 
-
-# 中国象棋棋盘为 9 列 10 行，坐标范围分别是 x=0..8、y=0..9。
-BOARD_WIDTH = 9
-BOARD_HEIGHT = 10
-
-# 棋盘总格数。动作编码会把源格和目标格都映射到 0..89。
-SQUARE_COUNT = BOARD_WIDTH * BOARD_HEIGHT
-
-# 动作空间大小：任意源格 * 任意目标格。非法动作后续由规则过滤。
-ACTION_SPACE_SIZE = SQUARE_COUNT * SQUARE_COUNT
-
-# 单局最多半回合数，超过后按步数上限终局。
-MAX_TOTAL_PLIES = 300
-
-# 连续未吃子的半回合数上限，达到后按无吃子规则判和。
-NO_CAPTURE_DRAW_PLIES = 100
+# 棋盘几何与规则上限常量统一在 config 维护；此处重新导出以保持 engine 的公开接口不变。
+from config import (
+    ACTION_SPACE_SIZE,
+    BOARD_HEIGHT,
+    BOARD_WIDTH,
+    MAX_TOTAL_PLIES,
+    NO_CAPTURE_DRAW_PLIES,
+    SQUARE_COUNT,
+)
 
 # 中国象棋 FEN 字符串："<10 行棋盘> <行棋方> [保留字段...] <未吃子半回合数> <完整回合数>"。
 # 当前解析器主要使用棋盘、行棋方、未吃子半回合数和完整回合数。

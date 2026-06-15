@@ -1,0 +1,33 @@
+<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="700" pageHeight="340" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：激活函数 —— 给网络注入非线性" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=16;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="30" y="12" width="640" height="28" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="relu_t" value="ReLU(x) = max(0, x)　·　主干用" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1f6feb;fontSize=13;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="50" y="50" width="300" height="20" as="geometry"/></mxCell>
+    <mxCell id="relu_y" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="150" y="232" as="sourcePoint"/><mxPoint x="150" y="86" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="relu_x" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="66" y="210" as="sourcePoint"/><mxPoint x="324" y="210" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="relu_xl" value="x" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#888888;fontSize=12;" vertex="1" parent="1"><mxGeometry x="324" y="200" width="16" height="18" as="geometry"/></mxCell>
+    <mxCell id="relu_0" value="0" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#888888;fontSize=11;" vertex="1" parent="1"><mxGeometry x="134" y="212" width="14" height="16" as="geometry"/></mxCell>
+    <mxCell id="relu_curve" style="endArrow=none;html=1;strokeColor=#1f6feb;strokeWidth=2.5;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="74" y="210" as="sourcePoint"/><mxPoint x="252" y="100" as="targetPoint"/><Array as="points"><mxPoint x="150" y="210"/></Array></mxGeometry></mxCell>
+    <mxCell id="relu_yx" value="y = x" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1f6feb;fontSize=11;" vertex="1" parent="1"><mxGeometry x="244" y="104" width="46" height="16" as="geometry"/></mxCell>
+    <mxCell id="relu_neg" value="x&lt;0 时输出 0" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#999999;fontSize=10;" vertex="1" parent="1"><mxGeometry x="62" y="186" width="86" height="16" as="geometry"/></mxCell>
+
+    <mxCell id="tanh_t" value="tanh(x) ∈ (−1, 1)　·　value 头用" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1f6feb;fontSize=13;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="380" y="50" width="280" height="20" as="geometry"/></mxCell>
+    <mxCell id="tanh_y" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="510" y="238" as="sourcePoint"/><mxPoint x="510" y="86" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="tanh_x" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="400" y="162" as="sourcePoint"/><mxPoint x="650" y="162" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="tanh_xl" value="x" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#888888;fontSize=12;" vertex="1" parent="1"><mxGeometry x="650" y="152" width="16" height="18" as="geometry"/></mxCell>
+    <mxCell id="tanh_p1l" style="endArrow=none;html=1;strokeColor=#cccccc;strokeWidth=1;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="430" y="116" as="sourcePoint"/><mxPoint x="620" y="116" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="tanh_p1" value="+1" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#999999;fontSize=11;" vertex="1" parent="1"><mxGeometry x="622" y="108" width="22" height="16" as="geometry"/></mxCell>
+    <mxCell id="tanh_m1l" style="endArrow=none;html=1;strokeColor=#cccccc;strokeWidth=1;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="430" y="208" as="sourcePoint"/><mxPoint x="620" y="208" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="tanh_m1" value="−1" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#999999;fontSize=11;" vertex="1" parent="1"><mxGeometry x="622" y="200" width="22" height="16" as="geometry"/></mxCell>
+    <mxCell id="tanh_curve" style="endArrow=none;html=1;strokeColor=#1f6feb;strokeWidth=2.5;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="416" y="206" as="sourcePoint"/><mxPoint x="604" y="118" as="targetPoint"/><Array as="points"><mxPoint x="460" y="200"/><mxPoint x="510" y="162"/><mxPoint x="560" y="124"/></Array></mxGeometry></mxCell>
+    <mxCell id="tanh_0" value="0" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#888888;fontSize=11;" vertex="1" parent="1"><mxGeometry x="494" y="164" width="14" height="16" as="geometry"/></mxCell>
+
+    <mxCell id="key" value="为什么要激活函数：若只堆叠线性层，多层会塌缩成一层线性，学不出复杂棋形——激活函数提供非线性。ReLU 简单、计算快、缓解梯度消失，用于主干每个 Conv-BN 之后；tanh 把数值压到 (−1, 1)，正好对应「当前方胜负倾向」，用于 value 头输出。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="30" y="258" width="640" height="56" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

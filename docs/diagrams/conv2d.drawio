@@ -1,0 +1,66 @@
+<mxGraphModel dx="1100" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="840" pageHeight="340" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：卷积一步 —— 输入局部块 ⊙ 卷积核 → 求和加偏置 → 一个输出像素" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=15;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="20" y="10" width="800" height="26" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="vb2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="24" y="80" width="110" height="110" as="geometry"/></mxCell>
+    <mxCell id="vb1" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#eef6ff;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="32" y="88" width="110" height="110" as="geometry"/></mxCell>
+    <mxCell id="inbg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="96" width="110" height="110" as="geometry"/></mxCell>
+    <mxCell id="inwin" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;opacity=70;" vertex="1" parent="1"><mxGeometry x="40" y="96" width="66" height="66" as="geometry"/></mxCell>
+    <mxCell id="ih1" style="endArrow=none;html=1;strokeColor=#c8d6e5;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="40" y="118" as="sourcePoint"/><mxPoint x="150" y="118" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ih2" style="endArrow=none;html=1;strokeColor=#c8d6e5;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="40" y="140" as="sourcePoint"/><mxPoint x="150" y="140" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ih3" style="endArrow=none;html=1;strokeColor=#c8d6e5;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="40" y="162" as="sourcePoint"/><mxPoint x="150" y="162" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ih4" style="endArrow=none;html=1;strokeColor=#c8d6e5;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="40" y="184" as="sourcePoint"/><mxPoint x="150" y="184" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="iv1" style="endArrow=none;html=1;strokeColor=#c8d6e5;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="62" y="96" as="sourcePoint"/><mxPoint x="62" y="206" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="iv2" style="endArrow=none;html=1;strokeColor=#c8d6e5;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="84" y="96" as="sourcePoint"/><mxPoint x="84" y="206" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="iv3" style="endArrow=none;html=1;strokeColor=#c8d6e5;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="106" y="96" as="sourcePoint"/><mxPoint x="106" y="206" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="iv4" style="endArrow=none;html=1;strokeColor=#c8d6e5;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="128" y="96" as="sourcePoint"/><mxPoint x="128" y="206" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="inlbl" value="输入特征图  K × H × W" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#444444;fontSize=12;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="14" y="210" width="150" height="20" as="geometry"/></mxCell>
+
+    <mxCell id="patlbl" value="局部块 x（3×3×K）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#2a5d9c;fontSize=12;align=center;" vertex="1" parent="1"><mxGeometry x="232" y="48" width="108" height="18" as="geometry"/></mxCell>
+    <mxCell id="patb" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#bcd5f5;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="256" y="64" width="72" height="72" as="geometry"/></mxCell>
+    <mxCell id="patbg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="250" y="70" width="72" height="72" as="geometry"/></mxCell>
+    <mxCell id="ph1" style="endArrow=none;html=1;strokeColor=#9fbce0;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="250" y="94" as="sourcePoint"/><mxPoint x="322" y="94" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ph2" style="endArrow=none;html=1;strokeColor=#9fbce0;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="250" y="118" as="sourcePoint"/><mxPoint x="322" y="118" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="pv1" style="endArrow=none;html=1;strokeColor=#9fbce0;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="274" y="70" as="sourcePoint"/><mxPoint x="274" y="142" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="pv2" style="endArrow=none;html=1;strokeColor=#9fbce0;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="298" y="70" as="sourcePoint"/><mxPoint x="298" y="142" as="targetPoint"/></mxGeometry></mxCell>
+
+    <mxCell id="odot" value="⊙" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#b85450;fontSize=22;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="266" y="142" width="40" height="30" as="geometry"/></mxCell>
+
+    <mxCell id="kerb" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#bcd9b6;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="256" y="172" width="72" height="72" as="geometry"/></mxCell>
+    <mxCell id="kerbg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="250" y="178" width="72" height="72" as="geometry"/></mxCell>
+    <mxCell id="kh1" style="endArrow=none;html=1;strokeColor=#9cc18f;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="250" y="202" as="sourcePoint"/><mxPoint x="322" y="202" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="kh2" style="endArrow=none;html=1;strokeColor=#9cc18f;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="250" y="226" as="sourcePoint"/><mxPoint x="322" y="226" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="kv1" style="endArrow=none;html=1;strokeColor=#9cc18f;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="274" y="178" as="sourcePoint"/><mxPoint x="274" y="250" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="kv2" style="endArrow=none;html=1;strokeColor=#9cc18f;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="298" y="178" as="sourcePoint"/><mxPoint x="298" y="250" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="kerlbl" value="卷积核 W（3×3×K）+ 偏置 b" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1e6b1e;fontSize=12;align=center;" vertex="1" parent="1"><mxGeometry x="216" y="252" width="148" height="18" as="geometry"/></mxCell>
+
+    <mxCell id="node" value="对应相乘后求和&#10;Σ ( W ⊙ x ) + b" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="430" y="128" width="150" height="64" as="geometry"/></mxCell>
+    <mxCell id="scalar" value="z" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;fontColor=#222222;fontSize=13;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="636" y="146" width="30" height="30" as="geometry"/></mxCell>
+
+    <mxCell id="outbg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="716" y="96" width="110" height="110" as="geometry"/></mxCell>
+    <mxCell id="outhl" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=2;" vertex="1" parent="1"><mxGeometry x="716" y="96" width="22" height="22" as="geometry"/></mxCell>
+    <mxCell id="oh1" style="endArrow=none;html=1;strokeColor=#cfe3c8;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="716" y="118" as="sourcePoint"/><mxPoint x="826" y="118" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="oh2" style="endArrow=none;html=1;strokeColor=#cfe3c8;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="716" y="140" as="sourcePoint"/><mxPoint x="826" y="140" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="oh3" style="endArrow=none;html=1;strokeColor=#cfe3c8;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="716" y="162" as="sourcePoint"/><mxPoint x="826" y="162" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="oh4" style="endArrow=none;html=1;strokeColor=#cfe3c8;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="716" y="184" as="sourcePoint"/><mxPoint x="826" y="184" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ov1" style="endArrow=none;html=1;strokeColor=#cfe3c8;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="738" y="96" as="sourcePoint"/><mxPoint x="738" y="206" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ov2" style="endArrow=none;html=1;strokeColor=#cfe3c8;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="760" y="96" as="sourcePoint"/><mxPoint x="760" y="206" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ov3" style="endArrow=none;html=1;strokeColor=#cfe3c8;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="782" y="96" as="sourcePoint"/><mxPoint x="782" y="206" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="ov4" style="endArrow=none;html=1;strokeColor=#cfe3c8;strokeWidth=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="804" y="96" as="sourcePoint"/><mxPoint x="804" y="206" as="targetPoint"/></mxGeometry></mxCell>
+    <mxCell id="outlbl" value="输出特征图  1 × H × W" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#444444;fontSize=12;align=center;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="696" y="210" width="150" height="20" as="geometry"/></mxCell>
+
+    <mxCell id="e_ex" value="① 取 3×3×K 局部块" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;dashed=1;fontColor=#a6822a;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="inwin" target="patbg"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e_pat" style="endArrow=classic;html=1;strokeColor=#6c8ebf;strokeWidth=1.6;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="patbg" target="node"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e_ker" value="② 与核对应相乘" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=1.6;fontColor=#1e6b1e;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="kerbg" target="node"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e_sum" value="③ 求和 + b" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;fontColor=#a6822a;fontSize=11;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="node" target="scalar"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e_place" value="④ 填回对应格" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;dashed=1;fontColor=#a6822a;fontSize=11;labelBackgroundColor=#ffffff;entryX=0;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="scalar" target="outhl"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+    <mxCell id="key" value="核滑遍每个位置 → 填满整张输出图（同一个核全程复用 = 权重共享，参数少）。padding=1 使输出仍是 10×9。一个核 → 一个输出通道；C_out 个核 → C_out 个输出通道。多层堆叠后感受野变大，能看到更大范围的棋形。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;align=left;verticalAlign=middle;spacingLeft=10;spacingRight=10;" vertex="1" parent="1">
+      <mxGeometry x="20" y="278" width="800" height="48" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>
