@@ -2,8 +2,8 @@
 """arena 守护：轮询 model_dir 版本，发现新版本就低优先级触发一场 arena（最近两版对杀）。
 
 与训练彻底解耦——训练只管写 model_*.pt + latest.json，本守护独立轮询、慢慢评，不阻塞训练。
-arena 是 batch=1 串行推理、且只 ~64 局，单次几分钟到几十分钟；故默认 nice 降优先级、
-可用 --every-versions 节流（别每个版本都评，省 GPU）。
+arena 是 batch=1 串行推理；默认跑 CPU（不抢训练/自对弈的 GPU）+ nice 降优先级 +
+较小工作量（16 开局 / 64 模拟，排序够用），可用 --every-versions 进一步节流。
 
 依赖：torch 特性的 arena 二进制要链接 venv 里的 libtorch，故本脚本须在 venv 下运行
 （uv run），它会自动把 venv 的 torch/lib 注入子进程的动态库搜索路径。
@@ -104,6 +104,7 @@ def build_command(args: argparse.Namespace, run_config: Path, va: int, vb: int) 
         "--model-dir", args.model_dir_arg,
         "--version-a", str(va),
         "--version-b", str(vb),
+        "--device", args.device,
         "--report", args.report,
         "--table", args.table,
         "--num-openings", str(args.num_openings),
@@ -154,8 +155,15 @@ def parse_args() -> argparse.Namespace:
         "--every-versions", type=int, default=1,
         help="普通模式节流：每攒够这么多个新版本才评一次（默认 1；--checkpoints-only 时忽略）",
     )
-    p.add_argument("--num-openings", type=int, default=32, help="开局数，总局数=N×2（默认 32）")
-    p.add_argument("--sims", type=int, default=None, help="每手模拟数（默认取 run-config.mcts）")
+    p.add_argument(
+        "--device", default="cpu",
+        help="对杀设备（默认 cpu：不抢训练/自对弈的 GPU；要快可设 cuda）",
+    )
+    p.add_argument("--num-openings", type=int, default=16, help="开局数，总局数=N×2（默认 16）")
+    p.add_argument(
+        "--sims", type=int, default=64,
+        help="每手模拟数（默认 64；纯排序够用，传更小更快）",
+    )
     p.add_argument("--nice", type=int, default=10, help="子进程 nice 增量，越大优先级越低（默认 10）")
     p.add_argument("--report", default="data/arena/report.json", help="JSON 报告路径")
     p.add_argument("--table", default="data/arena/table.csv", help="CSV 战绩表路径（累积趋势）")

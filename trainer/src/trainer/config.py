@@ -162,8 +162,9 @@ class DataGenConfig:
     # 滚动保留最近多少个 model_*.pt。
     keep_recent_models: int = 3
 
-    # 每多少步留 1 个长期 checkpoint。
-    checkpoint_every: int = 2000
+    # 每多少步留 1 个长期 checkpoint（也是 arena 守护的对杀触发节奏）。
+    # 须为 model_export_interval 的整数倍，否则该步不会被导出、checkpoint 取模筛不到。
+    checkpoint_every: int = 500
 
     # 长期 checkpoint 最多保留数（满了淘汰最旧）。
     keep_checkpoints: int = 3
