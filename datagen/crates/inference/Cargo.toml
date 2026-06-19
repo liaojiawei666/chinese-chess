@@ -1,0 +1,19 @@
+[package]
+name = "inference"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+engine = { path = "../engine" }
+encoder = { path = "../encoder" }
+# tch（libtorch 绑定）只在启用 `torch` 特性时引入，使得纯逻辑（mask+softmax）
+# 与差分测试无需 libtorch 即可编译/运行；真正的 model.pt 前向在 `infer` 里程碑接入。
+tch = { version = "0.17", optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[features]
+default = []
+torch = ["dep:tch"]

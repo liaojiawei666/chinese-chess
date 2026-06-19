@@ -1,0 +1,27 @@
+[package]
+name = "selfplay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "selfplay"
+path = "src/main.rs"
+
+[dependencies]
+engine = { path = "../../crates/engine" }
+encoder = { path = "../../crates/encoder" }
+mcts = { path = "../../crates/mcts" }
+inference = { path = "../../crates/inference" }
+store = { path = "../../crates/store" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+rayon = { workspace = true }
+rand = { workspace = true }
+
+[features]
+# 默认用均匀先验评估器（无需 libtorch，可跑端到端 smoke）；
+# 启用 torch 后改用 inference crate 的 tch-rs 真实网络前向。
+default = []
+torch = ["inference/torch"]

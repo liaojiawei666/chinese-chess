@@ -1,0 +1,144 @@
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1010" background="#ffffff" math="0" shadow="0" adaptiveColors="auto">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="图：自对弈数据生产 / 消费流水线（A 批量推理：跨 worker 聚合）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#222222;fontSize=18;align=center;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="14" width="1430" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="zoneRust" value="Rust 生产端 (datagen) — rayon scope 起 num_workers 个 worker 并行（下图放大其中一个）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#222222;verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="40" y="56" width="1430" height="480" as="geometry"/>
+    </mxCell>
+    <mxCell id="worker" value="worker i" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0f6ff;strokeColor=#6c8ebf;fontColor=#3b5b8c;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="70" y="110" width="610" height="300" as="geometry"/>
+    </mxCell>
+    <mxCell id="badge" value="× num_workers&#10;并行" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#5b3a7a;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="548" y="120" width="120" height="44" as="geometry"/>
+    </mxCell>
+    <mxCell id="w0play" value="自对弈 play_game" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="100" y="170" width="160" height="52" as="geometry"/>
+    </mxCell>
+    <mxCell id="w0mcts" value="MCTS 搜索&#10;&#10;逐次模拟下行到一个叶子&#10;→ 单叶请求送推理 actor 评估&#10;→ 回传后 backup&#10;（每 worker 同一时刻 1 个在途请求）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontColor=#222222;align=left;spacingLeft=8;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="100" y="240" width="320" height="130" as="geometry"/>
+    </mxCell>
+    <mxCell id="w0buf" value="攒分片 buffer&#10;（每局样本：state/π/z）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="470" y="170" width="180" height="52" as="geometry"/>
+    </mxCell>
+    <mxCell id="w0write" value="原子写盘 serialize_shard&#10;tmp → fsync → rename" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="470" y="300" width="180" height="56" as="geometry"/>
+    </mxCell>
+    <mxCell id="rem" value="AtomicI64 remaining&#10;各 worker fetch_sub 抢对局额度（&lt;0 收工）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#222222;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="100" y="430" width="320" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="bnote" value="备选 B（单局 virtual loss 批量收叶）：本机 CPU 核足够，纯 A（worker≥eval_batch_size）已能喂满 GPU；B 会破坏逐位可复现/差分测试，暂不做。" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#aaaaaa;fontColor=#666666;fontSize=10;align=left;spacingLeft=8;verticalAlign=middle;" vertex="1" parent="1">
+      <mxGeometry x="450" y="430" width="890" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="actor" value="推理 actor（单线程，独占一份 GPU 模型）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdf3e3;strokeColor=#d79b00;fontColor=#7f5a00;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="740" y="110" width="620" height="300" as="geometry"/>
+    </mxCell>
+    <mxCell id="reqq" value="请求队列&#10;MPSC channel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="770" y="170" width="180" height="56" as="geometry"/>
+    </mxCell>
+    <mxCell id="batch" value="(A) 凑批&#10;满 eval_batch_size&#10;或超 inference_timeout_ms" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontColor=#222222;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="770" y="270" width="180" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="fwd" value="GPU 模型&#10;一次前向（batch）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="1010" y="210" width="160" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="scatter" value="回传结果&#10;scatter 到各请求" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="1200" y="210" width="140" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="otherw" value="其他 worker × (N-1)&#10;的叶子请求" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#f5f5f5;strokeColor=#aaaaaa;fontColor=#666666;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="770" y="440" width="200" height="54" as="geometry"/>
+    </mxCell>
+    <mxCell id="samples" value="样本队列 samples_dir/*.st&#10;safetensors：uint8 state&#10;+ 稀疏 CSR π + z" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=14;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="1250" y="590" width="200" height="120" as="geometry"/>
+    </mxCell>
+    <mxCell id="models" value="模型目录 model_dir&#10;latest.json + model_*.pt" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=14;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="70" y="590" width="200" height="120" as="geometry"/>
+    </mxCell>
+    <mxCell id="diskLabel" value="磁盘：跨进程交接契约（datagen 写 / trainer 读，互不直接调用）" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=13;fontStyle=2;fontColor=#7f6000;" vertex="1" parent="1">
+      <mxGeometry x="300" y="566" width="940" height="22" as="geometry"/>
+    </mxCell>
+    <mxCell id="ptable" value="&lt;b&gt;参数（dev=local / prod=gpu）&lt;/b&gt;&lt;br&gt;&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;3&quot; style=&quot;font-size:11px;border-collapse:collapse&quot;&gt;&lt;tr&gt;&lt;td&gt;&lt;b&gt;参数&lt;/b&gt;&lt;/td&gt;&lt;td&gt;&lt;b&gt;dev&lt;/b&gt;&lt;/td&gt;&lt;td&gt;&lt;b&gt;prod&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;num_workers&lt;/td&gt;&lt;td&gt;2&lt;/td&gt;&lt;td&gt;12&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;n_simulations&lt;/td&gt;&lt;td&gt;50&lt;/td&gt;&lt;td&gt;128&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;eval_batch_size&lt;/td&gt;&lt;td&gt;2&lt;/td&gt;&lt;td&gt;16&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;inference_timeout_ms&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;shard_games&lt;/td&gt;&lt;td&gt;4&lt;/td&gt;&lt;td&gt;16&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;max_pending_shards&lt;/td&gt;&lt;td&gt;32&lt;/td&gt;&lt;td&gt;256&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;buffer_capacity&lt;/td&gt;&lt;td&gt;5000&lt;/td&gt;&lt;td&gt;200000&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;batch_size&lt;/td&gt;&lt;td&gt;64&lt;/td&gt;&lt;td&gt;512&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#222222;align=center;verticalAlign=top;spacingTop=6;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="330" y="588" width="430" height="210" as="geometry"/>
+    </mxCell>
+    <mxCell id="legend" value="实线 = 样本 / 评估数据流&#10;红色虚线 = 模型回流（热加载）/ 背压&#10;灰色虚线 = 跨 worker 请求聚合&#10;紫色 = 共享原子计数（worker 争用）" style="rounded=0;whiteSpace=wrap;html=1;align=left;fontSize=12;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#222222;verticalAlign=middle;spacingLeft=10;" vertex="1" parent="1">
+      <mxGeometry x="800" y="588" width="340" height="100" as="geometry"/>
+    </mxCell>
+    <mxCell id="zonePy" value="Python 消费端 (trainer)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#222222;verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+      <mxGeometry x="40" y="820" width="1430" height="150" as="geometry"/>
+    </mxCell>
+    <mxCell id="pLoad" value="读分片 load .st" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="1270" y="870" width="170" height="54" as="geometry"/>
+    </mxCell>
+    <mxCell id="pReplay" value="ReplayBuffer 滑动窗口" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="1010" y="870" width="190" height="54" as="geometry"/>
+    </mxCell>
+    <mxCell id="pBatch" value="随机采 batch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="760" y="870" width="160" height="54" as="geometry"/>
+    </mxCell>
+    <mxCell id="pTrain" value="train_step 更新网络" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="510" y="870" width="170" height="54" as="geometry"/>
+    </mxCell>
+    <mxCell id="pExport" value="导出新模型" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontColor=#222222;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="90" y="870" width="170" height="54" as="geometry"/>
+    </mxCell>
+    <mxCell id="rc" value="fetch_sub 领取" style="endArrow=classic;html=1;dashed=1;strokeColor=#9673a6;strokeWidth=1.6;fontSize=11;fontColor=#6c3a8c;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="rem" target="w0play">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="epm" value="每步搜索 / 返回访问数" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="w0play" target="w0mcts">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="epb" value="每局样本" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="w0play" target="w0buf">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="ebw" value="攒够 shard_games 局" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="w0buf" target="w0write">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="req" value="叶子张量（单叶请求）" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="w0mcts" target="reqq">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="reply" value="priors + value 回传" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="scatter" target="w0mcts">
+      <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1270" y="420"/><mxPoint x="440" y="420"/></Array></mxGeometry>
+    </mxCell>
+    <mxCell id="eqb" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;" edge="1" parent="1" source="reqq" target="batch">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="ebf" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;" edge="1" parent="1" source="batch" target="fwd">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="efs" style="endArrow=classic;html=1;strokeColor=#d79b00;strokeWidth=1.6;" edge="1" parent="1" source="fwd" target="scatter">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="eow" value="聚合各 worker 叶子" style="endArrow=classic;html=1;dashed=1;strokeColor=#aaaaaa;strokeWidth=1.4;fontSize=11;fontColor=#666666;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="otherw" target="reqq">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="conv0" value="原子写 .st 入队" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="w0write" target="samples">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="esl" value="扫描 .st 消费" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="samples" target="pLoad">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="elr" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;" edge="1" parent="1" source="pLoad" target="pReplay">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="erb" value="随机采样" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="pReplay" target="pBatch">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="ebt" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;" edge="1" parent="1" source="pBatch" target="pTrain">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="ete" value="每 export 步" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="pTrain" target="pExport">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="eem" value="写 latest.json + .pt" style="endArrow=classic;html=1;strokeColor=#888888;strokeWidth=1.6;fontSize=11;fontColor=#222222;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="pExport" target="models">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="fbmodel" value="热加载（版本变化才换模型）" style="endArrow=classic;html=1;dashed=1;strokeColor=#b85450;strokeWidth=1.8;fontSize=11;fontColor=#b85450;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="models" target="actor">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="fbbp" value="pending &gt; max_pending 阻塞" style="endArrow=classic;html=1;dashed=1;strokeColor=#b85450;strokeWidth=1.8;fontSize=11;fontColor=#b85450;labelBackgroundColor=#ffffff;exitX=0.15;exitY=0;exitDx=0;exitDy=0;entryX=0.15;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="samples" target="w0write">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

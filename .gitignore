@@ -1,3 +1,20 @@
 .pycache/
 __pycache__/
 *.pyc
+
+# Runtime artifacts (samples spool, exported models, generated run-config)
+/data/
+# selfplay 在 datagen/ 工作目录运行时产出的相对路径产物
+/datagen/data/
+
+# Rust build output
+/datagen/target/
+target/
+
+# Python venv
+.venv/
+
+# 本机为 tch(torch 特性）准备的 libtorch（手动下载，勿入库）
+/.libtorch/
+
+local

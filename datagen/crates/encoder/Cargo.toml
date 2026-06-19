@@ -1,0 +1,11 @@
+[package]
+name = "encoder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+engine = { path = "../engine" }
+
+[dev-dependencies]
+serde_json = { workspace = true }

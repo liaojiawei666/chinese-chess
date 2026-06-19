@@ -1,7 +1,0 @@
-pyproject.toml
-src/chinese_check.egg-info/PKG-INFO
-src/chinese_check.egg-info/SOURCES.txt
-src/chinese_check.egg-info/dependency_links.txt
-src/chinese_check.egg-info/requires.txt
-src/chinese_check.egg-info/top_level.txt
-tests/test_rules.py
