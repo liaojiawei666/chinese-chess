@@ -1,4 +1,4 @@
-//! 带网络先验的蒙特卡洛树搜索（移植自 trainer/src/trainer/reference/mcts.py）。
+//! 带网络先验的蒙特卡洛树搜索。
 //!
 //! - PUCT 选择：score = Q + c_puct · P · sqrt(1 + ΣN) / (1 + N)。
 //! - 根节点 Dirichlet 噪声（仅 epsilon>0 时生效；自对弈开局探索用）。

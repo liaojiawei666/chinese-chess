@@ -9,10 +9,12 @@ description: >-
 
 # Debug torch import failures (macOS, this repo)
 
-This repo runs **two** libtorch copies: the Rust datagen side uses libtorch 2.4.0
-via `.libtorch/` (`tch`), and the Python trainer uses a pip `torch` wheel. If a
-stray `DYLD_LIBRARY_PATH` points Python's `torch._C.so` at the Rust libtorch,
-they version-skew and import breaks in confusing, version-dependent ways.
+This repo now uses **one** libtorch: both the Python trainer and the Rust datagen
+side (`tch` via `LIBTORCH_USE_PYTORCH=1`) link the libtorch bundled in the venv's
+pip `torch` wheel (currently torch 2.11 / libtorch 2.11; `tch` 0.24). Because it
+is a single shared copy, the old "two copies version-skew" crash is gone — but a
+stray `DYLD_LIBRARY_PATH`/`LIBTORCH` left over from an old setup, or pointing at a
+*different* libtorch, can still break `import torch` in confusing ways.
 
 ## Check this FIRST (before touching Python/torch versions)
 
@@ -34,10 +36,10 @@ Also confirm it is not persisted: `grep -nE 'DYLD_LIBRARY_PATH|LIBTORCH' ~/.zshr
 
 ## Root rule
 
-Never run Python `torch` in a shell that previously ran `just build-torch` /
-`just selfplay-torch` (those set `DYLD_LIBRARY_PATH` → `.libtorch/.../lib`). The
-justfile sets it **inline per-recipe**, never globally, exactly to avoid this
-cross-talk — keep it that way.
+The justfile sets `DYLD_LIBRARY_PATH`/`LIBTORCH_USE_PYTORCH` **inline per-recipe**
+(now pointing at the venv's `torch/lib`), never globally — keep it that way. Since
+Rust and Python share the same venv libtorch, a leak no longer version-skews, but
+keeping env vars unset in your normal shell avoids any surprise.
 
 ## Do NOT immediately
 

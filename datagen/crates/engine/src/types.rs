@@ -1,5 +1,4 @@
 //! 基础类型：颜色、子种、棋子、走法、动作编码、几何判定。
-//! 与 trainer/src/trainer/reference/engine.py 的同名定义一一对应。
 
 use crate::constants::{ACTION_SPACE_SIZE, BOARD_HEIGHT, BOARD_WIDTH, SQUARE_COUNT};
 

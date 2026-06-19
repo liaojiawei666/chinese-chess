@@ -1,4 +1,4 @@
-//! 对局状态与历史相关规则（移植自 reference/engine.py 的 MoveRecord / GameState）。
+//! 对局状态与历史相关规则（MoveRecord / GameState）。
 //!
 //! 长将 / 长捉 / 重复判和都依赖历史，故 MCTS 节点持有 GameState 而非裸 Position。
 

@@ -1,4 +1,4 @@
-//! 局面编码 + 动作映射（移植自 trainer/src/trainer/reference/encoder.py）。
+//! 局面编码 + 动作映射。
 //!
 //! - `encode`：把 GameState 编成 canonical 视角的 (99,10,9) 张量，按 C 序展平成 Vec<f32>
 //!   （flat = channel*90 + y*9 + x，与 numpy reshape(-1) 一致）。

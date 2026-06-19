@@ -5,7 +5,7 @@ description = "PyTorch training + orchestration for Chinese chess AlphaZero self
 requires-python = ">=3.10"
 dependencies = [
     "numpy<2",
-    "torch==2.9.1",
+    "torch>=2.11,<2.12",
     "safetensors",
 ]
 
@@ -18,9 +18,10 @@ dev = [
 pythonpath = ["src"]
 testpaths = ["tests"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+# hatchling 后端：可编辑安装用 .pth 指向 src/，不在源码树里生成 egg-info。
+[tool.hatch.build.targets.wheel]
+packages = ["src/trainer"]
 
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"

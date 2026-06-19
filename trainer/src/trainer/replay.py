@@ -5,7 +5,7 @@ from typing import Iterable
 
 import numpy as np
 
-from .reference.selfplay import Sample
+from .shard_io import TrainSample
 
 # 一批训练数据：(states, pis, zs)，均为堆叠好的 numpy 数组，由 train 侧搬上 device。
 Batch = tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -18,13 +18,13 @@ class ReplayBuffer:
     """
 
     def __init__(self, capacity: int, rng: np.random.Generator | None = None) -> None:
-        self.buffer: deque[Sample] = deque(maxlen=capacity)
+        self.buffer: deque[TrainSample] = deque(maxlen=capacity)
         self.rng = rng if rng is not None else np.random.default_rng()
 
     def __len__(self) -> int:
         return len(self.buffer)
 
-    def add(self, samples: Iterable[Sample]) -> None:
+    def add(self, samples: Iterable[TrainSample]) -> None:
         self.buffer.extend(samples)
 
     def evict_oldest(self, k: int) -> int:

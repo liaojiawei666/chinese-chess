@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from trainer.config import ACTION_SPACE_SIZE, BOARD_HEIGHT, BOARD_WIDTH, INPUT_CHANNELS
-from trainer.shard_io import TrainSample, read_shard, write_shard
+from trainer.shard_io import ShardSource, TrainSample, decode_shard, encode_shard
 
 
 def _make_sample(seed: int) -> TrainSample:
@@ -24,10 +24,10 @@ def _make_sample(seed: int) -> TrainSample:
     return TrainSample(state=state, pi=pi, z=float(rng.choice([-1.0, 0.0, 1.0])))
 
 
-def test_write_read_roundtrip():
+def test_encode_decode_roundtrip():
     samples = [_make_sample(i) for i in range(3)]
-    data = write_shard(samples)
-    restored = read_shard(data)
+    data = encode_shard(samples)
+    restored = decode_shard(data)
 
     assert len(restored) == len(samples)
     for orig, got in zip(samples, restored):
@@ -42,6 +42,26 @@ def test_write_read_roundtrip():
 
 
 def test_pi_rows_normalized_after_restore():
-    samples = [_make_sample(7)]
-    restored = read_shard(write_shard(samples))
+    restored = decode_shard(encode_shard([_make_sample(7)]))
     assert abs(float(restored[0].pi.sum()) - 1.0) < 1e-5
+
+
+def test_shard_source_write_list_read_delete(tmp_path):
+    source = ShardSource(tmp_path)
+    assert source.list_shard() == []
+
+    source.write_shard("shard_000000_w00_000000.st", [_make_sample(1)])
+    source.write_shard("shard_000000_w01_000000.st", [_make_sample(2), _make_sample(3)])
+    # 半成品 .tmp 与非分片文件不应被列出。
+    (tmp_path / "shard_000000_w00_000001.st.tmp").write_bytes(b"x")
+    (tmp_path / "notes.txt").write_text("hi")
+
+    assert source.list_shard() == [
+        "shard_000000_w00_000000.st",
+        "shard_000000_w01_000000.st",
+    ]
+    restored = source.read_shard("shard_000000_w01_000000.st")
+    assert len(restored) == 2
+
+    source.delete_shard("shard_000000_w00_000000.st")
+    assert source.list_shard() == ["shard_000000_w01_000000.st"]

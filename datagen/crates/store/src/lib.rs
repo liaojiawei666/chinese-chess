@@ -198,6 +198,40 @@ impl LocalModelStore {
             serde_json::from_str(&text).context("解析 latest.json 失败")?;
         Ok(Some(pointer))
     }
+
+    /// 列出目录下所有 `model_{step:06}.pt` 的版本号（升序）。目录不存在则返回空。
+    pub fn list_versions(&self) -> Result<Vec<i64>> {
+        let mut versions = Vec::new();
+        if !self.dir.exists() {
+            return Ok(versions);
+        }
+        for entry in fs::read_dir(&self.dir)
+            .with_context(|| format!("读取模型目录失败：{}", self.dir.display()))?
+        {
+            let entry = entry?;
+            if let Some(name) = entry.file_name().to_str() {
+                if let Some(v) = parse_model_version(name) {
+                    versions.push(v);
+                }
+            }
+        }
+        versions.sort_unstable();
+        Ok(versions)
+    }
+
+    /// 版本号 → 对应 `model_{version:06}.pt` 的路径（不校验存在性）。
+    pub fn path_for(&self, version: i64) -> PathBuf {
+        self.dir.join(format!("model_{version:06}.pt"))
+    }
+}
+
+/// 解析 `model_{digits}.pt` 文件名为版本号；不匹配则 None。
+fn parse_model_version(name: &str) -> Option<i64> {
+    let digits = name.strip_prefix("model_")?.strip_suffix(".pt")?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 impl ModelStore for LocalModelStore {
@@ -286,5 +320,23 @@ mod tests {
         let (v, p) = store.get_latest_path().unwrap().unwrap();
         assert_eq!(v, 40);
         assert!(p.ends_with("model_000040.pt"));
+    }
+
+    #[test]
+    fn model_store_lists_versions_and_resolves_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = LocalModelStore::new(dir.path());
+        assert_eq!(store.list_versions().unwrap(), Vec::<i64>::new());
+
+        for v in [40i64, 100, 20] {
+            fs::write(store.path_for(v), b"x").unwrap();
+        }
+        // 干扰文件不应入选。
+        fs::write(dir.path().join("latest.json"), b"{}").unwrap();
+        fs::write(dir.path().join("model_bad.pt"), b"x").unwrap();
+        fs::write(dir.path().join("model_000050.pt.tmp"), b"x").unwrap();
+
+        assert_eq!(store.list_versions().unwrap(), vec![20, 40, 100]);
+        assert!(store.path_for(100).ends_with("model_000100.pt"));
     }
 }

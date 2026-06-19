@@ -1,8 +1,8 @@
-//! 中国象棋规则引擎（移植自 trainer/src/trainer/reference/engine.py）。
+//! 中国象棋规则引擎。
 //!
-//! 结构常量是与 Python 侧的硬契约，同时被 `encoder` / `mcts` 以及 run-config 一致性
-//! 检查复用。Position/GameState/legal_moves/make_move/status/fen 在此实现，并由
-//! trainer/scripts/dump_fixtures.py 产出的夹具做差分测试（见 tests/differential.rs）。
+//! 结构常量是与 trainer 侧的硬契约（经 run-config 一致性检查校验），同时被 `encoder` /
+//! `mcts` 复用。Position/GameState/legal_moves/make_move/status/fen 在此实现，规则正确性
+//! 由 tests/rules.rs 的原生单测保证。
 
 pub mod constants;
 pub mod game;

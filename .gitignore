@@ -2,8 +2,16 @@
 __pycache__/
 *.pyc
 
+# setuptools 可编辑安装生成的包元数据（构建产物，勿入库）
+*.egg-info/
+
 # Runtime artifacts (samples spool, exported models, generated run-config)
-/data/
+# 用 /data/* 忽略内容（而非 /data/ 忽略目录本身），以便给个别契约文件单独放行
+/data/*
+# 冻结的 arena 开局是可复现契约（需入库、跨机一致），单独放行；report/table 仍当产物忽略
+!/data/arena/
+/data/arena/*
+!/data/arena/openings.json
 # selfplay 在 datagen/ 工作目录运行时产出的相对路径产物
 /datagen/data/
 
@@ -13,8 +21,5 @@ target/
 
 # Python venv
 .venv/
-
-# 本机为 tch(torch 特性）准备的 libtorch（手动下载，勿入库）
-/.libtorch/
 
 local

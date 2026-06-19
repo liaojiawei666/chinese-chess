@@ -1,4 +1,4 @@
-//! 不可变棋盘局面（移植自 reference/engine.py 的 Position）。
+//! 不可变棋盘局面（Position）。
 
 use std::collections::BTreeMap;
 

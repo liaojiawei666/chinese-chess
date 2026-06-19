@@ -125,18 +125,19 @@ pub fn build_model(
 
 /// 推理 actor 主循环：独占模型，凑批前向，热加载，直到所有发送端关闭后退出。
 ///
-/// `version` 由本线程在初始化与每次热加载后写入，worker 读它给分片命名。
+/// `model_version`（当前模型权重版本）由本线程在初始化与每次热加载后写入，
+/// worker 读它给样本分片命名。
 pub fn run_actor<S: ModelStore>(
     rx: Receiver<EvalRequest>,
     model_store: S,
     device: String,
     batch_size: usize,
     timeout: Duration,
-    version: Arc<AtomicI64>,
+    model_version: Arc<AtomicI64>,
 ) {
-    let (mut cur_version, mut model) =
+    let (mut cur_model_version, mut model) =
         build_model(&model_store, &device).expect("推理 actor 初始化模型失败");
-    version.store(cur_version, Ordering::SeqCst);
+    model_version.store(cur_model_version, Ordering::SeqCst);
 
     // 热加载读盘有成本，按时间节流（每秒至多查一次 latest.json）。
     let mut last_check = Instant::now();
@@ -166,9 +167,9 @@ pub fn run_actor<S: ModelStore>(
         maybe_reload(
             &model_store,
             &device,
-            &mut cur_version,
+            &mut cur_model_version,
             &mut model,
-            &version,
+            &model_version,
             &mut last_check,
         );
 
@@ -189,9 +190,9 @@ pub fn run_actor<S: ModelStore>(
 fn maybe_reload<S: ModelStore>(
     model_store: &S,
     device: &str,
-    cur_version: &mut i64,
+    cur_model_version: &mut i64,
     model: &mut Box<dyn BatchModel>,
-    version: &Arc<AtomicI64>,
+    model_version: &Arc<AtomicI64>,
     last_check: &mut Instant,
 ) {
     if last_check.elapsed() < Duration::from_secs(1) {
@@ -202,14 +203,14 @@ fn maybe_reload<S: ModelStore>(
         Ok(Some(v)) => v,
         _ => return,
     };
-    if latest == *cur_version {
+    if latest == *cur_model_version {
         return;
     }
     match build_model(model_store, device) {
         Ok((nv, nm)) => {
-            *cur_version = nv;
+            *cur_model_version = nv;
             *model = nm;
-            version.store(nv, Ordering::SeqCst);
+            model_version.store(nv, Ordering::SeqCst);
         }
         Err(e) => eprintln!("热加载模型失败：{e:#}"),
     }
