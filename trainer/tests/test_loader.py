@@ -15,11 +15,11 @@ def _sample(v: float) -> TrainSample:
 
 
 class FakeSource:
-    """内存分片源：每个分片是一组样本，记录删除顺序。"""
+    """内存分片源：每个分片是一组样本，记录归档顺序。"""
 
     def __init__(self, shards: dict[str, list[TrainSample]]) -> None:
         self.shards = dict(shards)
-        self.deleted: list[str] = []
+        self.archived: list[str] = []
 
     def list_shard(self) -> list[str]:
         return sorted(self.shards)
@@ -27,9 +27,9 @@ class FakeSource:
     def read_shard(self, name: str) -> list[TrainSample]:
         return self.shards[name]
 
-    def delete_shard(self, name: str) -> None:
+    def archive_shard(self, name: str) -> None:
         self.shards.pop(name, None)
-        self.deleted.append(name)
+        self.archived.append(name)
 
 
 def _shards(num: int, per: int) -> dict[str, list[TrainSample]]:
@@ -64,8 +64,8 @@ def test_loader_consumes_budget_and_terminates():
     # 消费到预算即停拉新：约 100 条（最后一个分片可能让它略超）。
     assert loader.samples_seen >= 100
     assert loader.samples_seen <= 110
-    # 只删除已消费的分片，不会把 12 个全删。
-    assert len(source.deleted) == loader.shards_consumed <= 11
+    # 只归档已消费的分片，不会把 12 个全归档。
+    assert len(source.archived) == loader.shards_consumed <= 11
 
     # reuse=2、预算=100、batch=10 → 稳态约 20 步，叠加收尾收缩，步数应明显多于 20。
     assert loader.steps >= 20

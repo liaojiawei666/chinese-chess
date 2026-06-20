@@ -2,81 +2,225 @@
 # 档位用环境变量 CHESS_PROFILE 切换（local / gpu），默认 local。
 
 profile := env_var_or_default("CHESS_PROFILE", "local")
+config := "config/" + profile + ".json"
+manifest := "--manifest-path crates/Cargo.toml"
 
-# torch 特性只使用 trainer venv 里的 Python torch 自带 libtorch（全项目唯一来源）。
-# tch 用 LIBTORCH_USE_PYTORCH=1 经 venv 的 python 定位它；不再设置 LIBTORCH 或维护 .libtorch。
-# 动态库搜索路径只在 torch 相关 recipe 内联设置、指向同一份 torch/lib，不全局 export。
+# ── libtorch 环境设置 ──
+# 全项目唯一来源：trainer venv 里的 Python PyTorch 自带 libtorch。
+# torch-sys build script 看到 LIBTORCH_USE_PYTORCH=1 就会调 python 找 PyTorch 的 lib 目录。
+
 venv := justfile_directory() / "trainer" / ".venv"
 
-# 列出所有可用命令
+# 获取 torch/lib 路径的命令（跨平台）
+torch_lib_cmd := if os() == "windows" {
+    "python -c \"import torch,os;print(os.path.join(os.path.dirname(torch.__file__),'lib'))\""
+} else {
+    "'" + venv / "bin" / "python" + "' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'"
+}
+
 default:
     @just --list
 
-# 安装/同步 Python 依赖；torch 由 uv 按平台选择（macOS CPU/mac wheel，Windows cu126 CUDA wheel）。
 sync:
     cd trainer && uv sync
 
-# 导出所有档位的跨语言运行配置 data/config/run-config.<profile>.json
-export-config:
-    cd trainer && uv run python scripts/export_run_config.py
+# ── 构建 ──
 
-# 编译 datagen（不含 torch 特性，无需 libtorch）
-build:
-    cd datagen && cargo build --release
-
-# 编译 datagen 的 selfplay（启用 torch 特性）。tch 经 venv 的 python 定位并链接唯一 libtorch，
-# 故需先 `just sync`。编译期只需 venv 的 python 在 PATH 上（torch-sys 调它取库路径）。
+[unix]
 build-torch:
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 cargo build --manifest-path datagen/Cargo.toml --release -p selfplay --features torch
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 cargo build {{manifest}} --release
 
-# 跑全部测试：Rust 单测（规则/编码/搜索）+ Python 单测
+[windows]
+build-torch:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; cargo build {{manifest}} --release"
+
+# ── 测试 ──
+
 test: test-rust test-py
 
 test-rust:
-    cd datagen && cargo test
+    cargo test {{manifest}}
 
 test-py:
     cd trainer && uv run python -m pytest -q
 
-# 格式化两侧代码
 fmt:
-    cd datagen && cargo fmt
+    cargo fmt {{manifest}}
     -cd trainer && uv run ruff format src tests scripts
 
-# 跑自对弈数据生成（默认评估器为均匀先验，无需 libtorch）
-selfplay: export-config
-    cd datagen && cargo run --release -p selfplay -- ../data/config/run-config.{{profile}}.json
+# ── 基准测试 ──
 
-# 跑自对弈（torch 真实网络：跨 worker 批量推理 actor）。需先 `just sync`，且 model_dir 已有导出模型。
-# 运行期动态库搜索路径指向 venv 的 torch/lib（同一份 libtorch；LIBTORCH_USE_PYTORCH 不写 rpath）。
-# 从仓库根运行，使 config 里的相对 data/ 路径命中真实 data/models、data/samples。
-selfplay-torch: export-config
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" cargo run --manifest-path datagen/Cargo.toml --release -p selfplay --features torch -- data/config/run-config.{{profile}}.json
+# criterion 微基准（engine / encode / mcts）
+[unix]
+bench:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        cargo bench {{manifest}} -p cc_core
 
-# 两模型对杀评估，输出 A 相对 B 的胜率/Elo（纯指标，不改 latest.json、不打断训练）。
-# 需先 `just sync` 且 model_a/model_b 为已导出的 .pt。开局首次生成后冻结在 data/arena/openings.json。
-# 例：just arena data/models/model_000100.pt data/models/model_000040.pt
-arena model_a model_b: export-config
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" cargo run --manifest-path datagen/Cargo.toml --release -p arena --features torch -- --run-config data/config/run-config.{{profile}}.json --model-a {{model_a}} --model-b {{model_b}} --report data/arena/report.json --table data/arena/table.csv
+[windows]
+bench:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; cargo bench {{manifest}} -p cc_core"
 
-# 直接开打：自动取 data/models 里最近两版（A=最新 vs B=上一版），不用传参。
-arena-latest: export-config
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" cargo run --manifest-path datagen/Cargo.toml --release -p arena --features torch -- --run-config data/config/run-config.{{profile}}.json --report data/arena/report.json --table data/arena/table.csv
+# MCTS 性能热点分解
+[unix]
+bench-profile:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        cargo run {{manifest}} --release -p cc_core --example profile_mcts
 
-# 启动人机对战 GUI（macOS/Linux 写法；Windows 见 README 的 PowerShell 命令）。
-play-gui: export-config
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" LD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" cargo run --manifest-path datagen/Cargo.toml --release -p play_gui --features torch -- --run-config data/config/run-config.{{profile}}.json
+[windows]
+bench-profile:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; cargo run {{manifest}} --release -p cc_core --example profile_mcts"
 
-# arena 守护：轮询 model_dir，每出现新 checkpoint 就低优先级触发对杀（与训练解耦、不阻塞）。
-# checkpoint 间隔大（默认 2000 步）、Elo 信号干净、省 GPU。需先 `just sync`。
-arena-daemon: export-config
-    cd trainer && CHESS_PROFILE={{profile}} uv run python scripts/arena_daemon.py --checkpoints-only
+# 端到端吞吐基线（30 秒）
+[unix]
+bench-datagen:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        RUST_LOG=info \
+        cargo run {{manifest}} --release -p datagen -- --config {{config}} --duration-secs 30
 
-# 跑训练主循环（长驻；与 selfplay 并跑）
-train: export-config
-    cd trainer && CHESS_PROFILE={{profile}} uv run python scripts/train_loop.py
+[windows]
+bench-datagen:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p datagen -- --config {{config}} --duration-secs 30"
 
-# 端到端 smoke：先产一批分片，再让 trainer 消费训练并导出模型
-smoke: export-config
-    cd datagen && cargo run --release -p selfplay -- ../data/config/run-config.{{profile}}.json
-    cd trainer && CHESS_PROFILE={{profile}} uv run python scripts/train_loop.py --idle-poll-limit 3
+# ── CPU 火焰图 ──
+# Linux: cargo-flamegraph + perf（cargo install flamegraph）
+# macOS: samply（cargo install samply），无需 sudo
+# Windows: 用 Visual Studio Profiler 或 cargo-xray
+
+[linux]
+profile-flame:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        cargo flamegraph {{manifest}} -p datagen -o flamegraph.svg -- --config {{config}} --duration-secs 30
+    @echo "火焰图已生成：flamegraph.svg"
+
+[macos]
+profile-flame:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        cargo build {{manifest}} --release -p cc_core --example profile_mcts
+    BENCH_BIN=$(cargo build {{manifest}} --release -p cc_core --example profile_mcts --message-format=json 2>/dev/null \
+        | jq -r 'select(.executable) | .executable' | head -1)
+    if [ -z "$BENCH_BIN" ]; then
+        BENCH_BIN=$(find crates/target/release/examples -name "profile_mcts" -type f -perm +111 2>/dev/null | head -1)
+    fi
+    DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        samply record --save-only -o profile.json -- "$BENCH_BIN"
+    @echo "Profile 已生成：profile.json（用 samply load profile.json 查看）"
+
+# ── 自对弈 ──
+
+[unix]
+selfplay:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        RUST_LOG=info \
+        cargo run {{manifest}} --release -p datagen -- --config {{config}}
+
+[windows]
+selfplay:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p datagen -- --config {{config}}"
+
+# ── Arena ──
+
+[unix]
+arena model_a model_b:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        RUST_LOG=info \
+        cargo run {{manifest}} --release -p arena -- \
+        --run-config {{config}} \
+        --model-a {{model_a}} --model-b {{model_b}} \
+        --report data/arena/report.json --table data/arena/table.csv
+
+[windows]
+arena model_a model_b:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p arena -- --run-config {{config}} --model-a {{model_a}} --model-b {{model_b}} --report data/arena/report.json --table data/arena/table.csv"
+
+[unix]
+arena-latest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        RUST_LOG=info \
+        cargo run {{manifest}} --release -p arena -- \
+        --run-config {{config}} \
+        --report data/arena/report.json --table data/arena/table.csv
+
+[windows]
+arena-latest:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p arena -- --run-config {{config}} --report data/arena/report.json --table data/arena/table.csv"
+
+# ── Play GUI ──
+
+[unix]
+play-gui:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        cargo run {{manifest}} --release -p play_gui -- --run-config {{config}}
+
+[windows]
+play-gui:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; cargo run {{manifest}} --release -p play_gui -- --run-config {{config}}"
+
+# ── Arena 守护进程 + 训练 ──
+
+arena-daemon:
+    cd trainer && uv run python scripts/arena_daemon.py --config ../{{config}} --checkpoints-only
+
+train:
+    cd trainer && uv run python scripts/train_loop.py --config ../{{config}}
+
+# ── Smoke test（自对弈 + 训练全链路） ──
+
+[unix]
+smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        RUST_LOG=info \
+        cargo run {{manifest}} --release -p datagen -- --config {{config}}
+    cd trainer && uv run python scripts/train_loop.py --config ../{{config}} --idle-poll-limit 3
+
+[windows]
+smoke:
+    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p datagen -- --config {{config}}"
+    cd trainer && uv run python scripts/train_loop.py --config ../{{config}} --idle-poll-limit 3

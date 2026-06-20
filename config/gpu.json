@@ -1,0 +1,44 @@
+{
+  "profile": "gpu",
+  "device": "cuda",
+  "total_samples": 1200000,
+  "network": {
+    "hidden_channels": 128,
+    "residual_blocks": 10,
+    "policy_head_channels": 32,
+    "value_head_channels": 32,
+    "value_fc_hidden": 128
+  },
+  "mcts": {
+    "n_simulations": 128,
+    "c_puct": 1.5,
+    "dirichlet_alpha": 0.3,
+    "dirichlet_epsilon": 0.25,
+    "temperature_moves": 20
+  },
+  "train": {
+    "batch_size": 512,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "grad_clip_norm": 1.0,
+    "buffer_capacity": 200000,
+    "min_buffer_size": 10000,
+    "target_reuse": 2.0,
+    "steps_per_iteration": 150,
+    "weight_sync_interval": 50
+  },
+  "datagen": {
+    "samples_dir": "data/samples",
+    "model_dir": "data/models",
+    "num_workers": 20,
+    "games_per_worker": 64,
+    "eval_batch_size": 512,
+    "inference_timeout_ms": 1.0,
+    "shard_games": 4,
+    "max_pending_shards": 256,
+    "model_export_interval": 100,
+    "keep_recent_models": 3,
+    "checkpoint_every": 500,
+    "keep_checkpoints": 3
+  }
+}

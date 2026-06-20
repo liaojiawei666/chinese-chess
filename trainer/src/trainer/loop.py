@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 
 import torch
+
+logger = logging.getLogger(__name__)
 
 from .config import Config
 from .loader import SampleLoader, ShardSourceLike
@@ -80,12 +83,14 @@ def run_training_loop(
             trained = stats.steps * tc.batch_size
             throughput = (trained - trained_last) / dt
             steps_per_s = log_interval / dt
-            print(
-                f"[train] 步 {stats.steps} | loss {loss_sum / log_interval:.3f}"
-                f"（p {policy_sum / log_interval:.3f} v {value_sum / log_interval:.3f}）"
-                f" | 训练样本 {trained} | 拉入 {loader.samples_seen}/{config.total_samples}"
-                f" | 吞吐 {throughput:.0f} 样本/s, {steps_per_s:.1f} 步/s",
-                flush=True,
+            logger.info(
+                "[train] 步 %d | loss %.3f（p %.3f v %.3f）"
+                " | 训练样本 %d | 拉入 %d/%d"
+                " | 吞吐 %.0f 样本/s, %.1f 步/s",
+                stats.steps, loss_sum / log_interval,
+                policy_sum / log_interval, value_sum / log_interval,
+                trained, loader.samples_seen, config.total_samples,
+                throughput, steps_per_s,
             )
             loss_sum = policy_sum = value_sum = 0.0
             t_last = now

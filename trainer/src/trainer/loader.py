@@ -1,6 +1,6 @@
 """SampleLoader：消费端按数据预算 + reuse 驱动的滑动窗口批次迭代器。
 
-把「拉分片喂窗口、删已消费分片、维持 reuse、收尾收缩、何时结束」全收进一个迭代器：
+把「拉分片喂窗口、归档已消费分片、维持 reuse、收尾收缩、何时结束」全收进一个迭代器：
 训练侧只管 `for batch in loader: train_step(...)`，终止权完全在 loader。
 
 reuse（每条样本平均被抽取次数）是与硬件无关的算法超参；窗口推进、收尾、终止都由
@@ -25,7 +25,7 @@ class ShardSourceLike(Protocol):
 
     def read_shard(self, name: str) -> list[TrainSample]: ...
 
-    def delete_shard(self, name: str) -> None: ...
+    def archive_shard(self, name: str) -> None: ...
 
 
 class SampleLoader:
@@ -104,7 +104,7 @@ class SampleLoader:
                 for name in available:
                     samples = self.source.read_shard(name)
                     self.buffer.add(samples)
-                    self.source.delete_shard(name)
+                    self.source.archive_shard(name)
                     consumed += len(samples)
                     self.shards_consumed += 1
                     self.samples_seen += len(samples)

@@ -12,14 +12,20 @@ __pycache__/
 !/data/arena/
 /data/arena/*
 !/data/arena/openings.json
-# selfplay 在 datagen/ 工作目录运行时产出的相对路径产物
-/datagen/data/
 
 # Rust build output
-/datagen/target/
 target/
 
 # Python venv
 .venv/
+
+# Python version (per-machine, not committed)
+.python-version
+
+# Environment variables (per-machine)
+.env
+
+# Legacy datagen workspace (migrated to crates/)
+/datagen/
 
 local

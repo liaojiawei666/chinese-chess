@@ -1,8 +1,8 @@
 """样本分片的编解码 + 目录存取（与 datagen 侧 store crate 同一 safetensors 布局）。
 
 - 纯编解码：`decode_shard` / `encode_shard`（state uint8↔f32、稀疏 CSR π↔稠密）。
-- `ShardSource`：绑定一个样本目录，暴露 `list_shard` / `read_shard` / `delete_shard`，
-  正好是 `SampleLoader` 要注入的「分片源」。生产里 trainer 只读/删（分片由 Rust datagen 写），
+- `ShardSource`：绑定一个样本目录，暴露 `list_shard` / `read_shard` / `archive_shard`，
+  正好是 `SampleLoader` 要注入的「分片源」。读完的分片移到 `consumed/` 子目录归档。
   `write_shard` 仅供差分测试 / 无 Rust 时兜底。
 
 布局规范见 shared/shard-format.md。
@@ -93,13 +93,19 @@ def encode_shard(samples: list[TrainSample]) -> bytes:
 class ShardSource:
     """绑定一个本地样本目录的分片源。只识别 `.st`，忽略 `.st.tmp` 半成品。
 
-    暴露 `list_shard` / `read_shard` / `delete_shard` 供 SampleLoader 注入；未来要换 OSS，
+    暴露 `list_shard` / `read_shard` / `archive_shard` 供 SampleLoader 注入；未来要换 OSS，
     只需另写一个同方法的类替换它，SampleLoader 不变。
     """
 
-    def __init__(self, samples_dir: str | os.PathLike[str]) -> None:
+    def __init__(
+        self,
+        samples_dir: str | os.PathLike[str],
+        archive_subdir: str = "consumed",
+    ) -> None:
         self.root = Path(samples_dir)
         self.root.mkdir(parents=True, exist_ok=True)
+        self._archive = self.root / archive_subdir
+        self._archive.mkdir(parents=True, exist_ok=True)
 
     def list_shard(self) -> list[str]:
         """按文件名字典序（≈时间序）列出全部 `.st` 分片。"""
@@ -113,8 +119,12 @@ class ShardSource:
         """读一个分片并解码成样本列表。"""
         return decode_shard((self.root / name).read_bytes())
 
-    def delete_shard(self, name: str) -> None:
-        (self.root / name).unlink(missing_ok=True)
+    def archive_shard(self, name: str) -> None:
+        """消费完毕后移到 consumed/ 子目录（替代直接删除，便于调试/回溯）。"""
+        src = self.root / name
+        if src.exists():
+            import shutil
+            shutil.move(str(src), str(self._archive / name))
 
     def write_shard(self, name: str, samples: list[TrainSample]) -> None:
         """参考写盘（测试/兜底）：编码后原子落盘。生产里分片由 datagen 写。"""

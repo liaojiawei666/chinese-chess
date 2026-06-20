@@ -1,51 +1,19 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "chinese-chess run-config",
-  "description": "跨语言运行配置：trainer(Python) 与 datagen(Rust) 的唯一运行期参数出口。由 trainer/scripts/export_run_config.py 从 trainer/src/trainer/config.py 的档位生成。",
+  "description": "跨语言运行配置：trainer(Python) 与 datagen(Rust) 的可调超参数。结构常量（棋盘几何、规则上限、编码通道数）定义在代码中，不重复写入。",
   "type": "object",
-  "required": ["profile", "device", "total_samples", "board", "rules", "encoding", "network", "mcts", "train", "selfplay", "datagen"],
+  "required": ["profile", "device", "total_samples", "network", "mcts", "train", "datagen"],
   "additionalProperties": false,
   "properties": {
     "profile": { "type": "string" },
     "device": { "type": "string", "enum": ["cpu", "cuda", "auto"] },
     "total_samples": { "type": "integer", "minimum": 1 },
-    "board": {
-      "type": "object",
-      "required": ["width", "height", "square_count", "action_space_size"],
-      "additionalProperties": false,
-      "properties": {
-        "width": { "type": "integer" },
-        "height": { "type": "integer" },
-        "square_count": { "type": "integer" },
-        "action_space_size": { "type": "integer" }
-      }
-    },
-    "rules": {
-      "type": "object",
-      "required": ["max_total_plies", "no_capture_draw_plies"],
-      "additionalProperties": false,
-      "properties": {
-        "max_total_plies": { "type": "integer" },
-        "no_capture_draw_plies": { "type": "integer" }
-      }
-    },
-    "encoding": {
-      "type": "object",
-      "required": ["n_history", "planes_per_frame", "input_channels"],
-      "additionalProperties": false,
-      "properties": {
-        "n_history": { "type": "integer" },
-        "planes_per_frame": { "type": "integer" },
-        "input_channels": { "type": "integer" }
-      }
-    },
     "network": {
       "type": "object",
-      "required": ["input_channels", "action_space_size", "hidden_channels", "residual_blocks", "policy_head_channels", "value_head_channels", "value_fc_hidden"],
+      "required": ["hidden_channels", "residual_blocks", "policy_head_channels", "value_head_channels", "value_fc_hidden"],
       "additionalProperties": false,
       "properties": {
-        "input_channels": { "type": "integer" },
-        "action_space_size": { "type": "integer" },
         "hidden_channels": { "type": "integer" },
         "residual_blocks": { "type": "integer" },
         "policy_head_channels": { "type": "integer" },
@@ -55,14 +23,14 @@
     },
     "mcts": {
       "type": "object",
-      "required": ["n_simulations", "c_puct", "dirichlet_alpha", "dirichlet_epsilon", "collect_batch_size"],
+      "required": ["n_simulations", "c_puct", "dirichlet_alpha", "dirichlet_epsilon"],
       "additionalProperties": false,
       "properties": {
         "n_simulations": { "type": "integer", "minimum": 1 },
         "c_puct": { "type": "number" },
         "dirichlet_alpha": { "type": "number" },
         "dirichlet_epsilon": { "type": "number" },
-        "collect_batch_size": { "type": "integer", "minimum": 1 }
+        "temperature_moves": { "type": "integer", "minimum": 0, "default": 0, "description": "前 N 手用温度采样（训练探索用）；省略或 0 表示始终 argmax（对战用）" }
       }
     },
     "train": {
@@ -81,32 +49,23 @@
         "weight_sync_interval": { "type": "integer" }
       }
     },
-    "selfplay": {
-      "type": "object",
-      "required": ["temperature_moves", "eval_batch_size", "inference_timeout_ms", "num_workers"],
-      "additionalProperties": false,
-      "properties": {
-        "temperature_moves": { "type": "integer" },
-        "eval_batch_size": { "type": "integer" },
-        "inference_timeout_ms": { "type": "number" },
-        "num_workers": { "type": "integer" }
-      }
-    },
     "datagen": {
       "type": "object",
-      "required": ["samples_dir", "model_dir", "run_config_path", "shard_games", "max_pending_shards", "model_export_interval", "keep_recent_models", "checkpoint_every", "keep_checkpoints", "num_workers"],
+      "required": ["samples_dir", "model_dir", "num_workers", "eval_batch_size", "inference_timeout_ms", "shard_games", "max_pending_shards", "model_export_interval", "keep_recent_models", "checkpoint_every", "keep_checkpoints"],
       "additionalProperties": false,
       "properties": {
         "samples_dir": { "type": "string" },
         "model_dir": { "type": "string" },
-        "run_config_path": { "type": "string" },
+        "num_workers": { "type": "integer", "minimum": 1 },
+        "games_per_worker": { "type": "integer", "minimum": 1, "default": 1 },
+        "eval_batch_size": { "type": "integer", "minimum": 1 },
+        "inference_timeout_ms": { "type": "number" },
         "shard_games": { "type": "integer", "minimum": 1 },
         "max_pending_shards": { "type": "integer", "minimum": 1 },
         "model_export_interval": { "type": "integer", "minimum": 1 },
         "keep_recent_models": { "type": "integer", "minimum": 1 },
         "checkpoint_every": { "type": "integer", "minimum": 1 },
-        "keep_checkpoints": { "type": "integer", "minimum": 1 },
-        "num_workers": { "type": "integer", "minimum": 1 }
+        "keep_checkpoints": { "type": "integer", "minimum": 1 }
       }
     }
   }

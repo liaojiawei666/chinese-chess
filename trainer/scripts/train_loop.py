@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """训练主循环入口：消费 datagen 产的样本分片，训练 PolicyValueNet，版本化导出权重。
 
-读取档位（CHESS_PROFILE），按 DataGenConfig 的目录连接本地分片源 / 模型目录。终止由
-total_samples + reuse 决定（与 datagen 并跑时长驻）；--idle-poll-limit 仅作数据饿早停（smoke）。
+读取 config/*.json（与 Rust 侧共用）。终止由 total_samples + reuse 决定；--idle-poll-limit 仅 smoke 早停。
 
 用法：
-    CHESS_PROFILE=local python trainer/scripts/train_loop.py --idle-poll-limit 3
+    uv run python scripts/train_loop.py --config ../../config/local.json
+    uv run python scripts/train_loop.py --config ../../config/gpu.json --idle-poll-limit 3
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -20,7 +21,7 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from trainer.config import load_config  # noqa: E402
+from trainer.config import default_config_path, load_config  # noqa: E402
 from trainer.loop import run_training_loop  # noqa: E402
 from trainer.model_io import ModelIO  # noqa: E402
 from trainer.network import PolicyValueNet  # noqa: E402
@@ -29,6 +30,12 @@ from trainer.shard_io import ShardSource  # noqa: E402
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="配置文件路径（默认 config/{CHESS_PROFILE}.json）",
+    )
     parser.add_argument(
         "--idle-poll-limit",
         type=int,
@@ -50,9 +57,17 @@ def resolve_device(name: str) -> torch.device:
     return torch.device(name)
 
 
+logger = logging.getLogger(__name__)
+
+
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
     args = parse_args()
-    config = load_config()
+    config_path = args.config or default_config_path()
+    config = load_config(config_path)
     device = resolve_device(config.device)
 
     net = PolicyValueNet(config.network)
@@ -81,10 +96,10 @@ def main() -> None:
         poll_interval_s=args.poll_interval,
         log_interval=args.log_interval,
     )
-    print(
-        f"loop done: steps={stats.steps} shards={stats.shards_consumed} "
-        f"samples={stats.samples_seen} last_loss={stats.last_loss:.4f} "
-        f"latest_model_version={model_io.latest_version()}"
+    logger.info(
+        "loop done: steps=%d shards=%d samples=%d last_loss=%.4f latest_model_version=%s",
+        stats.steps, stats.shards_consumed, stats.samples_seen,
+        stats.last_loss, model_io.latest_version(),
     )
 
 

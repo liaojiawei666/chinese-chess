@@ -46,7 +46,7 @@ def test_pi_rows_normalized_after_restore():
     assert abs(float(restored[0].pi.sum()) - 1.0) < 1e-5
 
 
-def test_shard_source_write_list_read_delete(tmp_path):
+def test_shard_source_write_list_read_archive(tmp_path):
     source = ShardSource(tmp_path)
     assert source.list_shard() == []
 
@@ -63,5 +63,7 @@ def test_shard_source_write_list_read_delete(tmp_path):
     restored = source.read_shard("shard_000000_w01_000000.st")
     assert len(restored) == 2
 
-    source.delete_shard("shard_000000_w00_000000.st")
+    source.archive_shard("shard_000000_w00_000000.st")
     assert source.list_shard() == ["shard_000000_w01_000000.st"]
+    # 归档的分片应在 consumed/ 子目录中
+    assert (tmp_path / "consumed" / "shard_000000_w00_000000.st").exists()
