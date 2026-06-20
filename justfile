@@ -3,16 +3,16 @@
 
 profile := env_var_or_default("CHESS_PROFILE", "local")
 
-# torch 特性复用 trainer venv 里的那一份 libtorch（与 Python torch 同版本，无需单独下载）。
-# tch 用 LIBTORCH_USE_PYTORCH=1 经 venv 的 python 定位 libtorch；故先 `just sync`。
-# DYLD_LIBRARY_PATH 只在 torch 相关 recipe 内联设置、指向 venv 的 torch/lib，不全局 export。
+# torch 特性只使用 trainer venv 里的 Python torch 自带 libtorch（全项目唯一来源）。
+# tch 用 LIBTORCH_USE_PYTORCH=1 经 venv 的 python 定位它；不再设置 LIBTORCH 或维护 .libtorch。
+# 动态库搜索路径只在 torch 相关 recipe 内联设置、指向同一份 torch/lib，不全局 export。
 venv := justfile_directory() / "trainer" / ".venv"
 
 # 列出所有可用命令
 default:
     @just --list
 
-# 安装/同步 Python 依赖
+# 安装/同步 Python 依赖；torch 由 uv 按平台选择（macOS CPU/mac wheel，Windows cu126 CUDA wheel）。
 sync:
     cd trainer && uv sync
 
@@ -24,7 +24,7 @@ export-config:
 build:
     cd datagen && cargo build --release
 
-# 编译 datagen 的 selfplay（启用 torch 特性）。tch 经 venv 的 python 定位并链接 libtorch，
+# 编译 datagen 的 selfplay（启用 torch 特性）。tch 经 venv 的 python 定位并链接唯一 libtorch，
 # 故需先 `just sync`。编译期只需 venv 的 python 在 PATH 上（torch-sys 调它取库路径）。
 build-torch:
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 cargo build --manifest-path datagen/Cargo.toml --release -p selfplay --features torch
@@ -48,7 +48,7 @@ selfplay: export-config
     cd datagen && cargo run --release -p selfplay -- ../data/config/run-config.{{profile}}.json
 
 # 跑自对弈（torch 真实网络：跨 worker 批量推理 actor）。需先 `just sync`，且 model_dir 已有导出模型。
-# 运行期 DYLD_LIBRARY_PATH 指向 venv 的 torch/lib（LIBTORCH_USE_PYTORCH 不写 rpath）。
+# 运行期动态库搜索路径指向 venv 的 torch/lib（同一份 libtorch；LIBTORCH_USE_PYTORCH 不写 rpath）。
 # 从仓库根运行，使 config 里的相对 data/ 路径命中真实 data/models、data/samples。
 selfplay-torch: export-config
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" cargo run --manifest-path datagen/Cargo.toml --release -p selfplay --features torch -- data/config/run-config.{{profile}}.json
@@ -62,6 +62,10 @@ arena model_a model_b: export-config
 # 直接开打：自动取 data/models 里最近两版（A=最新 vs B=上一版），不用传参。
 arena-latest: export-config
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" cargo run --manifest-path datagen/Cargo.toml --release -p arena --features torch -- --run-config data/config/run-config.{{profile}}.json --report data/arena/report.json --table data/arena/table.csv
+
+# 启动人机对战 GUI（macOS/Linux 写法；Windows 见 README 的 PowerShell 命令）。
+play-gui: export-config
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 DYLD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" LD_LIBRARY_PATH="$('{{venv}}/bin/python' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),"lib"))')" cargo run --manifest-path datagen/Cargo.toml --release -p play_gui --features torch -- --run-config data/config/run-config.{{profile}}.json
 
 # arena 守护：轮询 model_dir，每出现新 checkpoint 就低优先级触发对杀（与训练解耦、不阻塞）。
 # checkpoint 间隔大（默认 2000 步）、Elo 信号干净、省 GPU。需先 `just sync`。

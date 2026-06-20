@@ -14,6 +14,7 @@ fn cfg() -> MctsConfig {
         c_puct: 1.5,
         dirichlet_alpha: 0.3,
         dirichlet_epsilon: 0.0,
+        collect_batch_size: 1,
     }
 }
 

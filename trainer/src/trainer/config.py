@@ -76,6 +76,10 @@ class MCTSConfig:
     dirichlet_alpha: float = 0.3
     dirichlet_epsilon: float = 0.25
 
+    # 叶子并行宽度：一波收集多少个叶子后批量评估（virtual loss 防同波重复选）。
+    # =1 为逐叶串行（与原始逐位可复现一致）；>1 用 GPU 批量摊薄推理往返延迟、提自对弈吞吐。
+    collect_batch_size: int = 1
+
 
 # 训练超参
 # ----------------------------------------------------------------------------
@@ -230,7 +234,7 @@ PROFILES: dict[str, Config] = {
         device="cuda",
         total_samples=1_200_000,
         network=NetworkConfig(hidden_channels=128, residual_blocks=10),
-        mcts=MCTSConfig(n_simulations=128),
+        mcts=MCTSConfig(n_simulations=128, collect_batch_size=8),
         train=TrainConfig(
             batch_size=512,
             buffer_capacity=200000,
@@ -241,15 +245,17 @@ PROFILES: dict[str, Config] = {
         ),
         selfplay=SelfPlayConfig(
             num_workers=16,
-            eval_batch_size=16,
-            inference_timeout_ms=5.0,
+            # 叶子并行后每 worker 一波可有 ~collect_batch_size 个在途请求，
+            # 故有效批量上限随之增大；适当调大单次前向批量、缩短凑批等待窗口。
+            eval_batch_size=64,
+            inference_timeout_ms=2.0,
             temperature_moves=20,
         ),
         datagen=DataGenConfig(
-            shard_games=16,
+            shard_games=4,
             max_pending_shards=256,
             model_export_interval=100,
-            num_workers=12,
+            num_workers=20,
         ),
     ),
 }

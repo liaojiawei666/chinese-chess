@@ -15,6 +15,13 @@ use rand_distr::Distribution;
 /// 先验需按 `legal_moves()` 的顺序给出（与 PUCT 选择的遍历/打破平局顺序一致）。
 pub trait Evaluator {
     fn evaluate(&self, state: &GameState) -> (Vec<(Move, f64)>, f64);
+
+    /// 批量评估：默认逐个调用 `evaluate`。跨进程批量推理的实现（selfplay 的
+    /// BatchedEvaluator）可重写为「一次发出全部请求、再统一收回执」，让一局内
+    /// 一波收集的多个叶子并发凑成大 GPU 批，摊薄每次推理的往返延迟。
+    fn evaluate_batch(&self, states: &[&GameState]) -> Vec<(Vec<(Move, f64)>, f64)> {
+        states.iter().map(|s| self.evaluate(s)).collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -23,6 +30,9 @@ pub struct MctsConfig {
     pub c_puct: f64,
     pub dirichlet_alpha: f64,
     pub dirichlet_epsilon: f64,
+    /// 叶子并行宽度：一波收集多少个叶子后再批量评估（virtual loss 防同波重复选同叶）。
+    /// =1 时退化为逐叶串行，与原始（逐位可复现）行为完全一致；>1 时用 GPU 批量提速。
+    pub collect_batch_size: u32,
 }
 
 impl Default for MctsConfig {
@@ -32,9 +42,14 @@ impl Default for MctsConfig {
             c_puct: 1.5,
             dirichlet_alpha: 0.3,
             dirichlet_epsilon: 0.25,
+            collect_batch_size: 1,
         }
     }
 }
+
+/// 虚拟损失：收集一个叶子时沿途各边临时记一笔"输"（n+1, w-1），降低其 Q，
+/// 促使同一波后续收集避开同一分支；评估后在 backup 时连同真实值一并修正回来。
+const VIRTUAL_LOSS: f64 = 1.0;
 
 struct Edge {
     mv: Move,
@@ -107,8 +122,39 @@ impl<E: Evaluator, R: Rng> Mcts<E, R> {
         }
 
         self.add_dirichlet_noise(&mut root);
-        for _ in 0..self.config.n_simulations {
-            self.simulate(&mut root);
+
+        let width = self.config.collect_batch_size.max(1);
+        let mut done = 0u32;
+        while done < self.config.n_simulations {
+            let want = (self.config.n_simulations - done).min(width) as usize;
+
+            // 收集本波叶子：沿途记虚拟损失，使同波各次收集尽量落到不同叶子。
+            let mut leaf_paths: Vec<Vec<usize>> = Vec::new();
+            let mut terminals: Vec<(Vec<usize>, f64)> = Vec::new();
+            for _ in 0..want {
+                match self.collect_leaf(&mut root) {
+                    Collected::Leaf { path } => leaf_paths.push(path),
+                    Collected::Terminal { path, value } => terminals.push((path, value)),
+                }
+            }
+
+            // 非终局叶子批量评估（一次前向），再各自展开 + 回传。
+            if !leaf_paths.is_empty() {
+                let states: Vec<&GameState> =
+                    leaf_paths.iter().map(|p| &leaf_node(&root, p).state).collect();
+                let results = self.evaluator.evaluate_batch(&states);
+                drop(states);
+                for (path, (priors, value)) in leaf_paths.iter().zip(results.into_iter()) {
+                    expand_leaf(&mut root, path, priors);
+                    backup_path(&mut root, path, value);
+                }
+            }
+            // 终局叶子无需评估，直接回传其终局值。
+            for (path, value) in &terminals {
+                backup_path(&mut root, path, *value);
+            }
+
+            done += want as u32;
         }
 
         let counts = root.edges.iter().map(|e| (e.mv, e.n)).collect();
@@ -131,28 +177,41 @@ impl<E: Evaluator, R: Rng> Mcts<E, R> {
         self.root = None;
     }
 
-    fn simulate(&mut self, node: &mut Node) -> f64 {
-        // 前置：node 已展开且非终局（根在 run 中保证；递归只进入展开非终局子节点）。
-        let i = self.select(node);
+    /// 从根下行选到一个叶子（未展开的真实叶 / 终局），沿途对所选边记虚拟损失，
+    /// 返回到达该叶的边索引路径。终局叶顺带标记并带回其终局值。
+    fn collect_leaf(&self, root: &mut Node) -> Collected {
+        let mut path: Vec<usize> = Vec::new();
+        let mut node: &mut Node = root;
+        loop {
+            // 前置：node 已展开且非终局。
+            let i = self.select(node);
+            path.push(i);
+            // 记虚拟损失（backup 时连同真实值修正回来）。
+            node.edges[i].n += 1;
+            node.edges[i].w -= VIRTUAL_LOSS;
 
-        if node.edges[i].child.is_none() {
-            let child_state = node.state.make_move(node.edges[i].mv);
-            node.edges[i].child = Some(Box::new(Node::new(child_state)));
+            if node.edges[i].child.is_none() {
+                let child_state = node.state.make_move(node.edges[i].mv);
+                node.edges[i].child = Some(Box::new(Node::new(child_state)));
+            }
+            let child = node.edges[i].child.as_mut().unwrap();
+
+            if !child.is_expanded {
+                // 尚未展开：先判终局，否则即为待评估的真实叶子。
+                let status = child.state.status();
+                if status.is_terminal {
+                    child.is_terminal = true;
+                    child.is_expanded = true;
+                    child.terminal_value = terminal_value(child.to_play, status);
+                    return Collected::Terminal { path, value: child.terminal_value };
+                }
+                return Collected::Leaf { path };
+            }
+            if child.is_terminal {
+                return Collected::Terminal { path, value: child.terminal_value };
+            }
+            node = child;
         }
-        let child = node.edges[i].child.as_mut().unwrap();
-
-        let child_value = if !child.is_expanded {
-            self.evaluate(child)
-        } else if child.is_terminal {
-            child.terminal_value
-        } else {
-            self.simulate(child)
-        };
-
-        let edge = &mut node.edges[i];
-        edge.n += 1;
-        edge.w += -child_value;
-        -child_value
     }
 
     fn select(&self, node: &Node) -> usize {
@@ -212,6 +271,49 @@ impl<E: Evaluator, R: Rng> Mcts<E, R> {
             edge.prior = (1.0 - eps) * edge.prior + eps * nz;
         }
         node.noise_added = true;
+    }
+}
+
+/// 一波收集到的叶子：待评估的真实叶（只记路径）或终局叶（带回终局值）。
+enum Collected {
+    Leaf { path: Vec<usize> },
+    Terminal { path: Vec<usize>, value: f64 },
+}
+
+/// 按边索引路径从根走到叶节点（只读），用于取叶子局面做批量评估。
+fn leaf_node<'a>(root: &'a Node, path: &[usize]) -> &'a Node {
+    let mut node = root;
+    for &i in path {
+        node = node.edges[i].child.as_ref().expect("路径上的子节点应已创建");
+    }
+    node
+}
+
+/// 用网络先验展开叶子（已被同波其他结果展开过则跳过，避免重复）。
+fn expand_leaf(root: &mut Node, path: &[usize], priors: Vec<(Move, f64)>) {
+    let mut node: &mut Node = root;
+    for &i in path {
+        node = node.edges[i].child.as_mut().expect("路径上的子节点应已创建");
+    }
+    if !node.is_expanded {
+        node.edges = priors
+            .into_iter()
+            .map(|(mv, prior)| Edge { mv, prior, n: 0, w: 0.0, child: None })
+            .collect();
+        node.is_expanded = true;
+    }
+}
+
+/// 沿路径回传：撤销虚拟损失并叠加真实值。叶子值为叶节点走子方视角，逐层取反，
+/// 故第 j 层边（路径长 k）的真实贡献为 value·(-1)^(k-j)。访问数在收集时已 +1。
+fn backup_path(root: &mut Node, path: &[usize], leaf_value: f64) {
+    let k = path.len();
+    let mut node: &mut Node = root;
+    for (j, &i) in path.iter().enumerate() {
+        let sign = if (k - j) % 2 == 1 { -1.0 } else { 1.0 };
+        // +VIRTUAL_LOSS 撤销收集时记的虚拟损失，再叠加真实贡献。
+        node.edges[i].w += VIRTUAL_LOSS + sign * leaf_value;
+        node = node.edges[i].child.as_mut().expect("路径上的子节点应已创建");
     }
 }
 

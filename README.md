@@ -24,6 +24,7 @@ just test            # Rust 单测（规则/编码/搜索）+ Python 单测
 just selfplay        # 跑 datagen 自对弈（默认均匀先验评估器，无需 libtorch）
 just train           # 跑训练主循环（长驻，与 selfplay 并跑）
 just smoke           # 端到端 smoke：产分片 → 训练 → 导出 model_{step}.pt + latest.json
+just play-gui        # 启动人机对战 GUI（macOS/Linux；Windows 命令见下文）
 CHESS_PROFILE=gpu just build   # 切档位
 ```
 
@@ -39,7 +40,9 @@ datagen (Rust, rayon 多线程)                 trainer (Python)
 
 ## trainer（Python）
 
-依赖用 [uv](https://github.com/astral-sh/uv) 管理（`trainer/pyproject.toml`）。
+依赖用 [uv](https://github.com/astral-sh/uv) 管理（`trainer/pyproject.toml`）。torch 也由
+uv 管：macOS 使用 PyPI 上的 CPU/mac wheel，Windows 使用 PyTorch `cu126` index 的 CUDA
+wheel，所以不需要手动安装 torch，也不需要给日常 `uv run` 加 `--no-sync`。
 
 ```bash
 cd trainer
@@ -70,20 +73,21 @@ cargo test                                    # 跑规则/编码/搜索单测
 cargo run -p selfplay -- ../data/config/run-config.local.json
 ```
 
-### libtorch（tch-rs，仅 `torch` 特性需要）
+### libtorch（唯一来源，仅 `torch` 特性需要）
 
-`inference` crate 在启用 `--features torch` 时链接 libtorch。**本仓库复用 trainer venv 里
-那一份 libtorch**（即 Python `torch` wheel 自带的 `site-packages/torch/lib/`），不再单独
-下载 `.libtorch/`——全项目只有一份 libtorch，Python 与 Rust 同版本，杜绝版本漂移。
+`inference` crate 在启用 `--features torch` 时链接 libtorch。**本仓库只使用 trainer venv 里
+Python `torch` wheel 自带的 `site-packages/torch/lib/` 这一份 libtorch**，不再下载
+`.libtorch/`，也不设置 `LIBTORCH` 指向另一套库。全项目只有一个 libtorch 来源，Python 与
+Rust 同版本，杜绝版本漂移。
 
 机制：`tch` 用环境变量 `LIBTORCH_USE_PYTORCH=1` 经 venv 的 python 定位 libtorch。所以
 **先 `just sync` 装好 Python torch**，Rust 才能编译/运行 torch 特性。`just build-torch` /
 `just selfplay-torch` 已封装好下面两点：
 
 - **编译期**：venv 的 python 需在 `PATH` 上（`torch-sys` 调它取库路径）。
-- **运行期**：`DYLD_LIBRARY_PATH` 指向 venv 的 `torch/lib`（`LIBTORCH_USE_PYTORCH` 不写
-  rpath；macOS 用 `DYLD_LIBRARY_PATH`，Linux 用 `LD_LIBRARY_PATH`）。这两个变量只在
-  torch recipe 内联设置，不全局 export。
+- **运行期**：动态库搜索路径指向 venv 的 `torch/lib`（仍是同一份 libtorch，只是让系统
+  loader 找得到；`LIBTORCH_USE_PYTORCH` 不写 rpath）。macOS 用 `DYLD_LIBRARY_PATH`，
+  Linux 用 `LD_LIBRARY_PATH`；这些变量只在 torch recipe 内联设置，不全局 export。
 
 手动编译等价命令：
 
@@ -92,7 +96,7 @@ PATH="trainer/.venv/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
   cargo build --manifest-path datagen/Cargo.toml -p selfplay --features torch
 ```
 
-版本对齐：`tch` 绑定特定 libtorch 版本，而 libtorch 又要能加载 trainer 侧 torch 导出的
+版本对齐：`tch` 绑定特定 libtorch 版本，而这份 libtorch 又要能加载 trainer 侧 torch 导出的
 TorchScript `model.pt`。复用 venv 的 libtorch 天然保证「导出 torch = 运行 libtorch」，只需
 让 **`tch` 版本与 venv 的 torch 版本匹配**（当前：`torch 2.11` ↔ `tch 0.24`，均基于
 libtorch 2.11）。升级 torch 时需同步升 `tch`。若刻意用不匹配的 libtorch 调试，可设
@@ -100,6 +104,32 @@ libtorch 2.11）。升级 torch 时需同步升 `tch`。若刻意用不匹配的
 
 `inference` 的纯掩码/softmax 单测（无需 libtorch）始终随 `cargo test -p inference` 运行；
 真实 `model.pt` 前向（`torch` 特性）在 `infer` 里程碑接入。
+
+### 人机对战 GUI
+
+Rust GUI 二进制 `play_gui` 会读取 `data/models/latest.json` 指向的最新 TorchScript 模型，
+用 MCTS 走 AI 回合。默认人执红，界面里可以切换人执红/黑；点击自己的棋子后再点目标格即可。
+
+macOS/Linux 可直接用：
+
+```bash
+CHESS_PROFILE=gpu just play-gui
+```
+
+Windows PowerShell 从仓库根启动时需要把 venv 的 torch DLL 目录放进 `PATH`：
+
+```powershell
+$venv="C:\project\chinese-chess\trainer\.venv"
+$env:CHESS_PROFILE="gpu"; $env:LIBTORCH_USE_PYTORCH="1"
+$env:PATH="$venv\Scripts;$venv\Lib\site-packages\torch\lib;$env:PATH"
+cd C:\project\chinese-chess\trainer
+uv run python scripts\export_run_config.py --profile gpu
+cd C:\project\chinese-chess
+cargo run --manifest-path datagen\Cargo.toml --release -p play_gui --features torch -- --run-config data\config\run-config.gpu.json --device cuda
+```
+
+棋力测试时可先降低每手模拟数让界面更快响应，例如追加 `--sims 32`；想更认真对弈则去掉该参数，
+默认使用 run-config 里的 `mcts.n_simulations`。
 
 ### arena（棋力评估）
 

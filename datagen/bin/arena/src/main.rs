@@ -170,7 +170,8 @@ fn main() -> Result<()> {
         n_simulations: sims,
         c_puct: rc.mcts.c_puct,
         dirichlet_alpha: 0.3,
-        dirichlet_epsilon: 0.0, // 评估关噪声
+        dirichlet_epsilon: 0.0,  // 评估关噪声
+        collect_batch_size: 1,   // 对杀确定性：单模型同步评估，不用叶子并行
     };
 
     let openings = openings::load_or_generate(

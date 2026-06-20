@@ -55,13 +55,14 @@
     },
     "mcts": {
       "type": "object",
-      "required": ["n_simulations", "c_puct", "dirichlet_alpha", "dirichlet_epsilon"],
+      "required": ["n_simulations", "c_puct", "dirichlet_alpha", "dirichlet_epsilon", "collect_batch_size"],
       "additionalProperties": false,
       "properties": {
         "n_simulations": { "type": "integer", "minimum": 1 },
         "c_puct": { "type": "number" },
         "dirichlet_alpha": { "type": "number" },
-        "dirichlet_epsilon": { "type": "number" }
+        "dirichlet_epsilon": { "type": "number" },
+        "collect_batch_size": { "type": "integer", "minimum": 1 }
       }
     },
     "train": {

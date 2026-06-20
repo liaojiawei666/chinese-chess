@@ -61,6 +61,13 @@ pub struct MctsConfig {
     pub c_puct: f64,
     pub dirichlet_alpha: f64,
     pub dirichlet_epsilon: f64,
+    /// 叶子并行宽度（一波收集多少叶子批量评估）；旧配置缺省时退化为 1（串行）。
+    #[serde(default = "default_collect_batch_size")]
+    pub collect_batch_size: u32,
+}
+
+fn default_collect_batch_size() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Deserialize)]

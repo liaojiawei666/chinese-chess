@@ -229,9 +229,9 @@ impl BatchedEvaluator {
 
 // 为 &BatchedEvaluator 实现 Evaluator：每局 `Mcts::new(&evaluator, ...)` 复用同一句柄。
 // &T 是 fundamental 类型、BatchedEvaluator 为本地类型，孤儿规则允许此 impl。
-impl Evaluator for &BatchedEvaluator {
-    fn evaluate(&self, state: &GameState) -> EvalReply {
-        // 编码与合法走法在 worker 线程算（并行），actor 只做 GPU 前向。
+impl BatchedEvaluator {
+    /// 把一个局面打包成请求 + 一次性回执接收端（编码/合法走法在调用线程并行算）。
+    fn make_request(state: &GameState) -> (EvalRequest, std::sync::mpsc::Receiver<EvalReply>) {
         let input = encode(state);
         let moves = state.position.legal_moves();
         let perspective = state.position.side_to_move;
@@ -239,18 +239,33 @@ impl Evaluator for &BatchedEvaluator {
             .iter()
             .map(|&m| to_canonical_action(m, perspective))
             .collect();
-
-        // 每请求一个一次性回执 channel（容量 1）。
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         let req = EvalRequest {
-            input: EvalInput {
-                input,
-                moves,
-                legal_ids,
-            },
+            input: EvalInput { input, moves, legal_ids },
             reply: reply_tx,
         };
+        (req, reply_rx)
+    }
+}
+
+impl Evaluator for &BatchedEvaluator {
+    fn evaluate(&self, state: &GameState) -> EvalReply {
+        let (req, reply_rx) = BatchedEvaluator::make_request(state);
         self.tx.send(req).expect("推理 actor 已退出");
         reply_rx.recv().expect("推理 actor 未返回结果")
+    }
+
+    /// 叶子并行：先把一波全部请求发给 actor（不阻塞），再统一收回执。这样同波多个
+    /// 叶子并发凑进 actor 的批，单次 worker 只阻塞一次往返，而非每叶一次，显著提速。
+    fn evaluate_batch(&self, states: &[&GameState]) -> Vec<EvalReply> {
+        let mut rxs = Vec::with_capacity(states.len());
+        for state in states {
+            let (req, reply_rx) = BatchedEvaluator::make_request(state);
+            self.tx.send(req).expect("推理 actor 已退出");
+            rxs.push(reply_rx);
+        }
+        rxs.into_iter()
+            .map(|rx| rx.recv().expect("推理 actor 未返回结果"))
+            .collect()
     }
 }

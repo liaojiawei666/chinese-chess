@@ -5,8 +5,8 @@
 arena 是 batch=1 串行推理；默认跑 CPU（不抢训练/自对弈的 GPU）+ nice 降优先级 +
 较小工作量（16 开局 / 64 模拟，排序够用），可用 --every-versions 进一步节流。
 
-依赖：torch 特性的 arena 二进制要链接 venv 里的 libtorch，故本脚本须在 venv 下运行
-（uv run），它会自动把 venv 的 torch/lib 注入子进程的动态库搜索路径。
+依赖：torch 特性的 arena 二进制只链接 venv 里的 Python torch 自带 libtorch，故本脚本须在
+venv 下运行（uv run）。它会自动把同一份 venv torch/lib 注入子进程的动态库搜索路径。
 
 用法：
     uv run python scripts/arena_daemon.py --checkpoints-only  # 推荐：每个新 checkpoint 评一次
@@ -76,7 +76,7 @@ def eligible_pair(
 
 
 def torch_lib_dir() -> str | None:
-    """venv 里 libtorch 的 lib 目录（注入子进程动态库搜索路径用）。"""
+    """唯一 libtorch 来源的 lib 目录（注入子进程动态库搜索路径用）。"""
     try:
         import torch
     except ImportError:
@@ -85,7 +85,7 @@ def torch_lib_dir() -> str | None:
 
 
 def build_env() -> dict[str, str]:
-    """给 arena 子进程准备链接 venv libtorch 所需的环境变量。"""
+    """给 arena 子进程准备复用 venv libtorch 所需的环境变量。"""
     env = os.environ.copy()
     env["LIBTORCH_USE_PYTORCH"] = "1"
     lib = torch_lib_dir()

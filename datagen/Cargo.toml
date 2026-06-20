@@ -8,6 +8,7 @@ members = [
     "crates/store",
     "bin/selfplay",
     "bin/arena",
+    "bin/play_gui",
 ]
 
 [workspace.package]

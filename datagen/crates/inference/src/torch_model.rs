@@ -13,8 +13,38 @@ pub struct TorchModel {
     device: Device,
 }
 
+/// Windows 上 torch-sys 虽链接了 torch_cuda，但 MSVC 会丢弃未引用的 import，
+/// 导致 torch_cuda.dll 运行时不加载、CUDA dispatch key 未注册（前向会报
+/// “Could not run 'aten::*' with arguments from the 'CUDA' backend”）。
+/// 这里在用 CUDA 设备加载模型前显式 LoadLibrary 一次，触发其静态初始化注册 CUDA 后端。
+/// 依赖的 cudart/cublas/cudnn 与之同在 torch/lib（运行期该目录已在 PATH 上），可正常解析。
+#[cfg(target_os = "windows")]
+fn ensure_cuda_loaded() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        extern "system" {
+            fn LoadLibraryW(name: *const u16) -> *mut std::ffi::c_void;
+        }
+        let wide: Vec<u16> =
+            "torch_cuda.dll".encode_utf16().chain(std::iter::once(0)).collect();
+        let handle = unsafe { LoadLibraryW(wide.as_ptr()) };
+        if handle.is_null() {
+            eprintln!(
+                "警告：加载 torch_cuda.dll 失败，请确认 venv 的 torch/lib 在 PATH 上；CUDA 推理将不可用"
+            );
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_cuda_loaded() {}
+
 impl TorchModel {
     pub fn load(path: &str, device: Device) -> Result<Self, tch::TchError> {
+        if matches!(device, Device::Cuda(_)) {
+            ensure_cuda_loaded();
+        }
         let mut module = CModule::load_on_device(path, device)?;
         module.set_eval();
         Ok(TorchModel { module, device })

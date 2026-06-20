@@ -23,6 +23,7 @@ fn config(n_simulations: u32) -> MctsConfig {
         c_puct: 1.5,
         dirichlet_alpha: 0.3,
         dirichlet_epsilon: 0.0,
+        collect_batch_size: 1,
     }
 }
 
@@ -44,6 +45,19 @@ fn returns_one_entry_per_legal_move_and_all_legal() {
     assert_eq!(counts.len(), legal.len());
     for (mv, _) in &counts {
         assert!(legal.contains(mv));
+    }
+}
+
+#[test]
+fn leaf_parallel_visit_counts_sum_to_simulations() {
+    // 叶子并行（collect_batch_size>1）下访问数仍应精确等于模拟数：
+    // 验证虚拟损失的记账（收集 +1 / backup 撤销）不丢不重。
+    for width in [2u32, 8, 7] {
+        let cfg = MctsConfig { collect_batch_size: width, ..config(64) };
+        let mut mcts = Mcts::new(Uniform, cfg, StdRng::seed_from_u64(width as u64));
+        let counts = mcts.run(GameState::from_position(Position::starting()));
+        let total: u32 = counts.iter().map(|(_, n)| *n).sum();
+        assert_eq!(total, 64, "width={width} 时访问数之和应等于模拟数");
     }
 }
 

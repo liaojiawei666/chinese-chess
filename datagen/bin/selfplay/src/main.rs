@@ -211,6 +211,7 @@ fn worker_loop(
         c_puct: run_config.mcts.c_puct,
         dirichlet_alpha: run_config.mcts.dirichlet_alpha,
         dirichlet_epsilon: run_config.mcts.dirichlet_epsilon,
+        collect_batch_size: run_config.mcts.collect_batch_size,
     };
     let temperature_moves = run_config.selfplay.temperature_moves;
     let max_total_plies = run_config.rules.max_total_plies;

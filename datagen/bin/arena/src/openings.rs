@@ -75,6 +75,7 @@ pub fn generate(num: usize, plies: u32, temperature: f64, sims: u32, seed: u64) 
         c_puct: 1.5,
         dirichlet_alpha: 0.3,
         dirichlet_epsilon: 0.0, // 关噪声：走法分布确定，随机只来自温度采样
+        collect_batch_size: 1,
     };
     let eval = UniformEvaluator;
 
