@@ -47,11 +47,15 @@ pub struct Cli {
 }
 
 /// 加载配置并应用 CLI 覆盖。省略 `--config` 时自动检测 GPU 选择配置文件。
-pub fn load_config(cli: &Cli) -> anyhow::Result<RunConfig> {
-    let config_path = match &cli.config {
+pub fn config_path(cli: &Cli) -> PathBuf {
+    match &cli.config {
         Some(p) => p.clone(),
         None => detect_config_path(),
-    };
+    }
+}
+
+pub fn load_config(cli: &Cli) -> anyhow::Result<RunConfig> {
+    let config_path = config_path(cli);
     log::info!("加载配置：{}", config_path.display());
     let mut rc = RunConfig::load(&config_path)?;
     apply_overrides(&mut rc, cli);

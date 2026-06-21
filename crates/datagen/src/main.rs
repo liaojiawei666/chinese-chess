@@ -1,5 +1,6 @@
 //! datagen 自对弈数据生成器入口。
 
+mod bootstrap;
 mod cli;
 mod pipeline;
 
@@ -13,7 +14,7 @@ use clap::Parser;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use cc_core::infer::actor::EvalRequest;
+use cc_core::infer::actor::InferRequest;
 use cc_core::mcts::MctsConfig;
 use cc_core::model_io::{LocalModelStore, LocalSampleStore, ModelStore, SampleStore};
 
@@ -29,8 +30,11 @@ fn main() -> Result<()> {
     env_logger::init();
 
     let cli = Cli::parse();
+    let config_path = cli::config_path(&cli);
     let run_config = cli::load_config(&cli)?;
     let stop = StopConditions::from_cli(&cli);
+
+    bootstrap::ensure_initial_model(&config_path, &run_config.datagen.model_dir)?;
 
     log::info!(
         "loaded config: profile={} device={} workers={} n_sim={} total_samples={}",
@@ -55,7 +59,7 @@ fn main() -> Result<()> {
 
     let initial_model_version = model_store.get_version()?.unwrap_or(0);
     let model_version = Arc::new(AtomicI64::new(initial_model_version));
-    let (tx, rx) = mpsc::channel::<EvalRequest>();
+    let (tx, rx) = mpsc::channel::<InferRequest>();
     let actor = {
         let model_version = Arc::clone(&model_version);
         let device = run_config.device.clone();
@@ -182,7 +186,7 @@ fn worker_loop(
     produced: &AtomicI64,
     games: &AtomicI64,
     model_version: &AtomicI64,
-    tx: mpsc::Sender<EvalRequest>,
+    tx: mpsc::Sender<InferRequest>,
     shard_tx: mpsc::SyncSender<ShardMsg>,
     stop: &StopConditions,
 ) -> Result<()> {

@@ -13,41 +13,46 @@ pub struct TorchModel {
     device: Device,
 }
 
-/// Windows 上 torch-sys 虽链接了 torch_cuda，但 MSVC 会丢弃未引用的 import，
-/// 导致 torch_cuda.dll 运行时不加载、CUDA dispatch key 未注册（前向会报
-/// “Could not run 'aten::*' with arguments from the 'CUDA' backend”）。
-/// 这里在用 CUDA 设备加载模型前显式 LoadLibrary 一次，触发其静态初始化注册 CUDA 后端。
-/// 依赖的 cudart/cublas/cudnn 与之同在 torch/lib（运行期该目录已在 PATH 上），可正常解析。
-#[cfg(target_os = "windows")]
+/// 动态加载 libtorch_cuda.so，注册 CUDA dispatch key（Linux 上 tch 链接了但默认不 dlopen）。
+#[cfg(unix)]
 fn ensure_cuda_loaded() {
     use std::sync::Once;
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        extern "system" {
-            fn LoadLibraryW(name: *const u16) -> *mut std::ffi::c_void;
-        }
-        let wide: Vec<u16> =
-            "torch_cuda.dll".encode_utf16().chain(std::iter::once(0)).collect();
-        let handle = unsafe { LoadLibraryW(wide.as_ptr()) };
-        if handle.is_null() {
-            log::warn!(
-                "加载 torch_cuda.dll 失败，请确认 venv 的 torch/lib 在 PATH 上；CUDA 推理将不可用"
+        unsafe {
+            extern "C" {
+                fn dlopen(name: *const libc::c_char, flag: libc::c_int) -> *mut libc::c_void;
+            }
+            let handle = dlopen(
+                c"libtorch_cuda.so".as_ptr(),
+                libc::RTLD_LAZY | libc::RTLD_GLOBAL,
             );
+            if handle.is_null() {
+                log::warn!(
+                    "加载 libtorch_cuda.so 失败，请确认 venv 的 torch/lib 在 LD_LIBRARY_PATH 上"
+                );
+            }
         }
     });
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(unix))]
 fn ensure_cuda_loaded() {}
 
 impl TorchModel {
     pub fn load(path: &str, device: Device) -> Result<Self, tch::TchError> {
         if matches!(device, Device::Cuda(_)) {
             ensure_cuda_loaded();
+            // TorchScript 在 CPU 导出；先 CPU 反序列化再迁 GPU。
+            let mut module = CModule::load_on_device(path, Device::Cpu)?;
+            module.to(device, tch::Kind::Float, false);
+            module.set_eval();
+            Ok(TorchModel { module, device })
+        } else {
+            let mut module = CModule::load_on_device(path, device)?;
+            module.set_eval();
+            Ok(TorchModel { module, device })
         }
-        let mut module = CModule::load_on_device(path, device)?;
-        module.set_eval();
-        Ok(TorchModel { module, device })
     }
 
     /// 用设备字符串（"cpu" | "cuda" | "mps"）加载，免得调用方（selfplay bin）

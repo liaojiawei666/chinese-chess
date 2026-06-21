@@ -162,29 +162,8 @@ impl SampleStore for LocalSampleStore {
     }
 }
 
-/// 原子 rename：Unix 上 rename(2) 天然原子；Windows NTFS rename 在目标存在时可能报错，
-/// 改用 MoveFileExW(MOVEFILE_REPLACE_EXISTING) 保证覆盖语义。
-#[cfg(not(target_os = "windows"))]
 fn atomic_rename(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
     fs::rename(from, to)
-}
-
-#[cfg(target_os = "windows")]
-fn atomic_rename(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    extern "system" {
-        fn MoveFileExW(src: *const u16, dst: *const u16, flags: u32) -> i32;
-    }
-    const MOVEFILE_REPLACE_EXISTING: u32 = 1;
-    let wide = |p: &std::path::Path| -> Vec<u16> {
-        p.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
-    };
-    let ret = unsafe { MoveFileExW(wide(from).as_ptr(), wide(to).as_ptr(), MOVEFILE_REPLACE_EXISTING) };
-    if ret == 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
 }
 
 /// latest.json 内容。

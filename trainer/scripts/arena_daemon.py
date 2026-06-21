@@ -69,13 +69,23 @@ def torch_lib_dir() -> str | None:
     return os.path.join(os.path.dirname(torch.__file__), "lib")
 
 
+def nvidia_lib_dirs() -> str:
+    import glob
+    import site
+
+    paths = glob.glob(f"{site.getsitepackages()[0]}/nvidia/*/lib")
+    return os.pathsep.join(paths)
+
+
 def build_env() -> dict[str, str]:
     env = os.environ.copy()
     env["LIBTORCH_USE_PYTORCH"] = "1"
     lib = torch_lib_dir()
-    if lib:
+    nvidia = nvidia_lib_dirs()
+    extra = os.pathsep.join(p for p in (lib, nvidia) if p)
+    if extra:
         for key in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
-            env[key] = lib + (os.pathsep + env[key] if env.get(key) else "")
+            env[key] = extra + (os.pathsep + env[key] if env.get(key) else "")
     return env
 
 
@@ -159,7 +169,7 @@ def main() -> None:
     run_config = config_path
 
     args.model_dir_arg = config.datagen.model_dir
-    model_dir = REPO_ROOT / config.datagen.model_dir
+    model_dir = Path(config.datagen.model_dir)
     if not run_config.exists():
         raise SystemExit(f"未找到配置文件：{run_config}")
 

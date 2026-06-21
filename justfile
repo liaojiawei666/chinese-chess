@@ -10,13 +10,12 @@ manifest := "--manifest-path crates/Cargo.toml"
 # torch-sys build script 看到 LIBTORCH_USE_PYTORCH=1 就会调 python 找 PyTorch 的 lib 目录。
 
 venv := justfile_directory() / "trainer" / ".venv"
+run_log := justfile_directory() / "scripts" / "run-with-log.sh"
 
-# 获取 torch/lib 路径的命令（跨平台）
-torch_lib_cmd := if os() == "windows" {
-    "python -c \"import torch,os;print(os.path.join(os.path.dirname(torch.__file__),'lib'))\""
-} else {
-    "'" + venv / "bin" / "python" + "' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'"
-}
+torch_lib_cmd := "'" + venv / "bin" / "python" + "' -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'"
+
+# pip 安装的 nvidia-cu13 等（libnvrtc-builtins 等，GPU 前向 JIT 需要）
+nvidia_lib_cmd := "'" + venv / "bin" / "python" + "' -c 'import glob,site; print(\":\".join(glob.glob(f\"{site.getsitepackages()[0]}/nvidia/*/lib\")))'"
 
 default:
     @just --list
@@ -28,11 +27,14 @@ sync:
 
 [unix]
 build-torch:
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 cargo build {{manifest}} --release
-
-[windows]
-build-torch:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; cargo build {{manifest}} --release"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    TORCH_LIB=$( {{torch_lib_cmd}} )
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
+    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        cargo build {{manifest}} --release
 
 # ── 测试 ──
 
@@ -56,14 +58,11 @@ bench:
     #!/usr/bin/env bash
     set -euo pipefail
     TORCH_LIB=$( {{torch_lib_cmd}} )
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         cargo bench {{manifest}} -p cc_core
-
-[windows]
-bench:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; cargo bench {{manifest}} -p cc_core"
 
 # MCTS 性能热点分解
 [unix]
@@ -71,14 +70,11 @@ bench-profile:
     #!/usr/bin/env bash
     set -euo pipefail
     TORCH_LIB=$( {{torch_lib_cmd}} )
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         cargo run {{manifest}} --release -p cc_core --example profile_mcts
-
-[windows]
-bench-profile:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; cargo run {{manifest}} --release -p cc_core --example profile_mcts"
 
 # 端到端吞吐基线（30 秒）
 [unix]
@@ -86,47 +82,13 @@ bench-datagen:
     #!/usr/bin/env bash
     set -euo pipefail
     TORCH_LIB=$( {{torch_lib_cmd}} )
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
+    {{run_log}} bench-datagen -- env \
+        PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         RUST_LOG=info \
-        cargo run {{manifest}} --release -p datagen -- --config {{config}} --duration-secs 30
-
-[windows]
-bench-datagen:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p datagen -- --config {{config}} --duration-secs 30"
-
-# ── CPU 火焰图 ──
-# Linux: cargo-flamegraph + perf（cargo install flamegraph）
-# macOS: samply（cargo install samply），无需 sudo
-# Windows: 用 Visual Studio Profiler 或 cargo-xray
-
-[linux]
-profile-flame:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    TORCH_LIB=$( {{torch_lib_cmd}} )
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-        cargo flamegraph {{manifest}} -p datagen -o flamegraph.svg -- --config {{config}} --duration-secs 30
-    @echo "火焰图已生成：flamegraph.svg"
-
-[macos]
-profile-flame:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    TORCH_LIB=$( {{torch_lib_cmd}} )
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        cargo build {{manifest}} --release -p cc_core --example profile_mcts
-    BENCH_BIN=$(cargo build {{manifest}} --release -p cc_core --example profile_mcts --message-format=json 2>/dev/null \
-        | jq -r 'select(.executable) | .executable' | head -1)
-    if [ -z "$BENCH_BIN" ]; then
-        BENCH_BIN=$(find crates/target/release/examples -name "profile_mcts" -type f -perm +111 2>/dev/null | head -1)
-    fi
-    DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        samply record --save-only -o profile.json -- "$BENCH_BIN"
-    @echo "Profile 已生成：profile.json（用 samply load profile.json 查看）"
+        cargo run {{manifest}} --release -p datagen -- --config {{config}} --duration-secs 90
 
 # ── 自对弈 ──
 
@@ -135,15 +97,13 @@ selfplay:
     #!/usr/bin/env bash
     set -euo pipefail
     TORCH_LIB=$( {{torch_lib_cmd}} )
-    PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
+    {{run_log}} selfplay -- env \
+        PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         RUST_LOG=info \
         cargo run {{manifest}} --release -p datagen -- --config {{config}}
-
-[windows]
-selfplay:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p datagen -- --config {{config}}"
 
 # ── Arena ──
 
@@ -152,35 +112,29 @@ arena model_a model_b:
     #!/usr/bin/env bash
     set -euo pipefail
     TORCH_LIB=$( {{torch_lib_cmd}} )
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         RUST_LOG=info \
         cargo run {{manifest}} --release -p arena -- \
         --run-config {{config}} \
         --model-a {{model_a}} --model-b {{model_b}} \
         --report data/arena/report.json --table data/arena/table.csv
 
-[windows]
-arena model_a model_b:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p arena -- --run-config {{config}} --model-a {{model_a}} --model-b {{model_b}} --report data/arena/report.json --table data/arena/table.csv"
-
 [unix]
 arena-latest:
     #!/usr/bin/env bash
     set -euo pipefail
     TORCH_LIB=$( {{torch_lib_cmd}} )
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         RUST_LOG=info \
         cargo run {{manifest}} --release -p arena -- \
         --run-config {{config}} \
         --report data/arena/report.json --table data/arena/table.csv
-
-[windows]
-arena-latest:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p arena -- --run-config {{config}} --report data/arena/report.json --table data/arena/table.csv"
 
 # ── Play GUI ──
 
@@ -189,22 +143,25 @@ play-gui:
     #!/usr/bin/env bash
     set -euo pipefail
     TORCH_LIB=$( {{torch_lib_cmd}} )
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         cargo run {{manifest}} --release -p play_gui -- --run-config {{config}}
-
-[windows]
-play-gui:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; cargo run {{manifest}} --release -p play_gui -- --run-config {{config}}"
 
 # ── Arena 守护进程 + 训练 ──
 
 arena-daemon:
-    cd trainer && uv run python scripts/arena_daemon.py --config ../{{config}} --checkpoints-only
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{run_log}} arena-daemon -- bash -c \
+        'cd trainer && uv run python scripts/arena_daemon.py --config ../{{config}} --checkpoints-only'
 
 train:
-    cd trainer && uv run python scripts/train_loop.py --config ../{{config}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{run_log}} train -- bash -c \
+        'cd trainer && uv run python scripts/train_loop.py --config ../{{config}}'
 
 # ── Smoke test（自对弈 + 训练全链路） ──
 
@@ -213,14 +170,10 @@ smoke:
     #!/usr/bin/env bash
     set -euo pipefail
     TORCH_LIB=$( {{torch_lib_cmd}} )
+    NVIDIA_LIBS=$( {{nvidia_lib_cmd}} )
     PATH="{{venv}}/bin:$PATH" LIBTORCH_USE_PYTORCH=1 \
-        DYLD_LIBRARY_PATH="$TORCH_LIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$TORCH_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        DYLD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$TORCH_LIB${NVIDIA_LIBS:+:$NVIDIA_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         RUST_LOG=info \
         cargo run {{manifest}} --release -p datagen -- --config {{config}}
-    cd trainer && uv run python scripts/train_loop.py --config ../{{config}} --idle-poll-limit 3
-
-[windows]
-smoke:
-    @powershell -Command "$torch_lib = python -c 'import torch,os;print(os.path.join(os.path.dirname(torch.__file__),\"lib\"))'; $env:LIBTORCH_USE_PYTORCH='1'; $env:PATH=\"$torch_lib;$env:PATH\"; $env:RUST_LOG='info'; cargo run {{manifest}} --release -p datagen -- --config {{config}}"
     cd trainer && uv run python scripts/train_loop.py --config ../{{config}} --idle-poll-limit 3

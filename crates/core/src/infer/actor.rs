@@ -8,11 +8,12 @@
 //!     再 scatter 回各请求自带的回执 channel；
 //!   - 模型版本走共享 `AtomicI64`，actor 负责按版本变化热加载，worker 只读它给分片命名。
 //!
-//! 单局自身仍是「下行到一个叶子 → 阻塞等评估 → backup」的串行语义（每 worker 同时刻
-//! 至多 1 个在途请求），所以跨 worker 聚合是逐位精确的，不改变任何单局结果。
+//!   - worker 一轮多局 eval 用 `InferRequest::WorkerBatch` 一次发送、一次 recv，
+//!     避免逐局独立回执 channel 在 barrier 下与 actor 互相等待；
+//!   - 单叶 `InferRequest::One` 供 arena / BatchedEvaluator。
 
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -38,7 +39,82 @@ pub struct EvalInput {
 /// worker → actor 的一条请求：输入 + 回执发送端。
 pub struct EvalRequest {
     pub input: EvalInput,
-    pub reply: SyncSender<EvalReply>,
+    pub reply: Sender<EvalReply>,
+}
+
+/// worker → actor 的消息：单叶或同一 worker 一轮多局打包。
+pub enum InferRequest {
+    /// 单叶请求（arena / BatchedEvaluator 等）。
+    One(EvalRequest),
+    /// 同一 worker 一轮内多局 eval 打成一包；前向完成后一次性回传 Vec（顺序与 inputs 一致）。
+    WorkerBatch {
+        inputs: Vec<EvalInput>,
+        reply: Sender<Vec<EvalReply>>,
+    },
+}
+
+struct BatchReplyGroup {
+    reply: Sender<Vec<EvalReply>>,
+    start_idx: usize,
+    len: usize,
+}
+
+fn extend_infer_msg(
+    msg: InferRequest,
+    inputs: &mut Vec<EvalInput>,
+    ones: &mut Vec<(usize, Sender<EvalReply>)>,
+    batches: &mut Vec<BatchReplyGroup>,
+) {
+    match msg {
+        InferRequest::One(r) => {
+            let idx = inputs.len();
+            inputs.push(r.input);
+            ones.push((idx, r.reply));
+        }
+        InferRequest::WorkerBatch {
+            inputs: batch,
+            reply,
+        } => {
+            let start_idx = inputs.len();
+            let len = batch.len();
+            inputs.extend(batch);
+            batches.push(BatchReplyGroup {
+                reply,
+                start_idx,
+                len,
+            });
+        }
+    }
+}
+
+fn scatter_results(
+    results: Vec<EvalReply>,
+    ones: Vec<(usize, Sender<EvalReply>)>,
+    batches: Vec<BatchReplyGroup>,
+) {
+    for (idx, tx) in ones {
+        if let Some(res) = results.get(idx) {
+            let _ = tx.send(res.clone());
+        }
+    }
+    for g in batches {
+        let slice: Vec<EvalReply> = results[g.start_idx..g.start_idx + g.len].to_vec();
+        let _ = g.reply.send(slice);
+    }
+}
+
+/// 同一 worker 一轮 eval：一次 InferRequest，一次 recv 收回全部结果。
+pub fn send_worker_batch(
+    tx: &Sender<InferRequest>,
+    inputs: Vec<EvalInput>,
+) -> mpsc::Receiver<Vec<EvalReply>> {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    tx.send(InferRequest::WorkerBatch {
+        inputs,
+        reply: reply_tx,
+    })
+    .expect("推理 actor 已退出");
+    reply_rx
 }
 
 /// 批量模型：一次评估一批叶子（顺序与输入一致）。
@@ -119,7 +195,7 @@ pub fn build_model(
 /// `model_version`（当前模型权重版本）由本线程在初始化与每次热加载后写入，
 /// worker 读它给样本分片命名。
 pub fn run_actor<S: ModelStore>(
-    rx: Receiver<EvalRequest>,
+    rx: Receiver<InferRequest>,
     model_store: S,
     device: String,
     batch_size: usize,
@@ -139,17 +215,20 @@ pub fn run_actor<S: ModelStore>(
             Ok(r) => r,
             Err(_) => break,
         };
-        let mut reqs = vec![first];
+        let mut inputs: Vec<EvalInput> = Vec::new();
+        let mut ones: Vec<(usize, Sender<EvalReply>)> = Vec::new();
+        let mut batches: Vec<BatchReplyGroup> = Vec::new();
+        extend_infer_msg(first, &mut inputs, &mut ones, &mut batches);
 
         // 凑批：满 batch_size 或到 timeout 截止即止。timeout=0 时退化为不凑批。
         let deadline = Instant::now() + timeout;
-        while reqs.len() < batch_size {
+        while inputs.len() < batch_size {
             let wait = deadline.saturating_duration_since(Instant::now());
             if wait.is_zero() {
                 break;
             }
             match rx.recv_timeout(wait) {
-                Ok(r) => reqs.push(r),
+                Ok(msg) => extend_infer_msg(msg, &mut inputs, &mut ones, &mut batches),
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -164,17 +243,8 @@ pub fn run_actor<S: ModelStore>(
             &mut last_check,
         );
 
-        let mut inputs = Vec::with_capacity(reqs.len());
-        let mut replies = Vec::with_capacity(reqs.len());
-        for r in reqs {
-            inputs.push(r.input);
-            replies.push(r.reply);
-        }
         let results = model.evaluate_batch(&inputs);
-        for (tx, res) in replies.into_iter().zip(results) {
-            // worker 可能已退出（reply 接收端被 drop），忽略发送失败。
-            let _ = tx.send(res);
-        }
+        scatter_results(results, ones, batches);
     }
 }
 
@@ -209,11 +279,11 @@ fn maybe_reload<S: ModelStore>(
 
 /// worker 侧的评估句柄：克隆同一 `Sender` 即可，发请求后阻塞等回执。
 pub struct BatchedEvaluator {
-    tx: Sender<EvalRequest>,
+    tx: Sender<InferRequest>,
 }
 
 impl BatchedEvaluator {
-    pub fn new(tx: Sender<EvalRequest>) -> Self {
+    pub fn new(tx: Sender<InferRequest>) -> Self {
         BatchedEvaluator { tx }
     }
 }
@@ -222,7 +292,7 @@ impl BatchedEvaluator {
 // &T 是 fundamental 类型、BatchedEvaluator 为本地类型，孤儿规则允许此 impl。
 impl BatchedEvaluator {
     /// 把一个局面打包成请求 + 一次性回执接收端（编码/合法走法在调用线程并行算）。
-    fn make_request(state: &GameState) -> (EvalRequest, std::sync::mpsc::Receiver<EvalReply>) {
+    fn make_request(state: &GameState) -> (InferRequest, std::sync::mpsc::Receiver<EvalReply>) {
         let input = encode(state);
         let moves = state.position.legal_moves();
         let perspective = state.position.side_to_move;
@@ -230,12 +300,12 @@ impl BatchedEvaluator {
             .iter()
             .map(|&m| to_canonical_action(m, perspective))
             .collect();
-        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        let (reply_tx, reply_rx) = mpsc::channel();
         let req = EvalRequest {
             input: EvalInput { input, moves, legal_ids },
             reply: reply_tx,
         };
-        (req, reply_rx)
+        (InferRequest::One(req), reply_rx)
     }
 }
 

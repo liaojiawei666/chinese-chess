@@ -97,53 +97,63 @@ just arena-daemon   # checkpoint 触发对杀守护
 
 ## 性能分析
 
-三层观测链：**火焰图找热点 → criterion 精确单函数 → datagen 端到端吞吐**。
+流水线分两段：**datagen（Rust 自对弈产样本）** 和 **trainer（Python GPU 训练）**。按你想查的段选命令。
 
-### 1. 端到端吞吐基线
+### 1. 自对弈瓶颈（Rust / CPU + GPU 推理）
 
-```bash
-# 30 秒吞吐对比（可调 batch / workers）
-just bench-datagen                    # 等价快捷命令
-just bench-datagen -- --eval-batch-size 256
-just bench-datagen -- --workers 20
-```
+datagen 启动时若 `data/models/` 无权重，会自动调用 Python 导出**随机初始**网络（与训练导出的格式相同），再 GPU 加载。
 
-### 2. CPU 火焰图
+**端到端吞吐**（真实 datagen 配置，30 秒）：
 
 ```bash
-cargo install flamegraph   # 一次性
-just profile             # macOS 需 sudo（dtrace）；Linux 用 perf
+CHESS_PROFILE=gpu just bench-datagen
+# 日志里看「样本/s」；可调 workers / batch：
+CHESS_PROFILE=gpu just bench-datagen -- --workers 8 --eval-batch-size 256
 ```
 
-Windows：管理员 PowerShell 下手动运行。
+**各函数大致耗时**（MCTS 内部分解，单位 µs，文本直读）：
 
-macOS 无 sudo 可选 [samply](https://github.com/mstange/samply)：`samply record cargo --manifest-path crates/Cargo.toml run --release -p datagen -- --duration-secs 30`。
+```bash
+just bench-profile
+```
 
-### 3. criterion 单函数基准
+输出示例：`legal_moves ~9µs`、`step(select) ~55%`、`evaluate ~40%` 等。
+
+**单函数精确对比**（criterion 微基准，HTML 报告）：
 
 ```bash
 just bench
+# 报告：crates/target/criterion/
 ```
 
-HTML 报告在 `crates/target/criterion/`。
+### 2. 训练瓶颈（Python / PyTorch）
 
-### 4. GPU 利用率（外部工具）
-
-Rust 代码不内嵌 CUDA profiling；并行采集：
+训练循环已每 50 步打日志（吞吐、loss）：
 
 ```bash
-# 终端 1
-just selfplay-torch
-
-# 终端 2（NVIDIA）
-nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used \
-  --format=csv -l 1 > gpu_log.csv
+CHESS_PROFILE=gpu just train
+# 或：cd trainer && uv run python scripts/train_loop.py --config ../config/gpu.json
 ```
 
-### 5. 缓存 / 内存（可选，低优先级）
+看 `[train] 步 N | ... | 吞吐 X 样本/s` 判断 GPU 训练是否跟上。
 
-- Linux：`perf stat -e cache-misses,cache-references,instructions cargo --manifest-path crates/Cargo.toml run ...`
-- 内存分配热点通常已在火焰图中可见（`alloc::` 调用栈）
+**GPU 是否在干活**（另开终端，与 selfplay/train 并行）：
+
+```bash
+nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv -l 1
+```
+
+### 3. 推荐顺序
+
+```bash
+# 样本生成慢？
+CHESS_PROFILE=gpu just bench-datagen    # 整体样本/s
+just bench-profile                      # Rust 哪段 CPU 函数慢
+
+# 训练慢或 GPU 空转？
+CHESS_PROFILE=gpu just train            # 看训练吞吐日志 + nvidia-smi
+just bench                              # 对比 engine/encode 单函数基线
+```
 
 ## 跨语言契约
 

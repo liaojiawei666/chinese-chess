@@ -25,18 +25,25 @@ _MODEL_RE = re.compile(r"^model_(\d{6})\.pt$")
 
 
 def scripted_bytes(net: nn.Module, device: torch.device | str = "cpu") -> bytes:
-    """把网络转成 TorchScript 并序列化成字节流。jit.script 失败时退化为 jit.trace。"""
+    """把网络转成 TorchScript 字节流。
+
+    始终在 CPU 上 script/trace，便于 Rust tch-rs 用 load_on_device 迁到 CUDA；
+    若在 GPU 上直接导出，反序列化时可能因 CUDA 后端未初始化而失败。
+    """
     was_training = net.training
+    orig_device = next(net.parameters()).device
     net.eval()
+    cpu_net = net.cpu()
     try:
-        module = torch.jit.script(net)
+        module = torch.jit.script(cpu_net)
     except Exception:
-        example = torch.zeros(1, INPUT_CHANNELS, BOARD_HEIGHT, BOARD_WIDTH, device=device)
-        module = torch.jit.trace(net, example)
+        example = torch.zeros(1, INPUT_CHANNELS, BOARD_HEIGHT, BOARD_WIDTH, device="cpu")
+        module = torch.jit.trace(cpu_net, example)
     buffer = io.BytesIO()
     torch.jit.save(module, buffer)
     if was_training:
         net.train()
+    net.to(orig_device)
     return buffer.getvalue()
 
 
@@ -62,7 +69,9 @@ class ModelIO:
 
     def save(self, step: int, net: nn.Module, device: torch.device | str = "cpu") -> None:
         """打包当前权重为 model_{step}.pt 并更新 latest.json（含保留策略）。"""
-        self.put_model(step, scripted_bytes(net, device))
+        # device 仅保留签名兼容；TorchScript 导出总在 CPU 上完成。
+        _ = device
+        self.put_model(step, scripted_bytes(net))
 
     def put_model(self, step: int, data: bytes) -> None:
         """字节级落盘：写 model_{step}.pt（不可变）→ 原子重写 latest.json → 执行保留策略。"""

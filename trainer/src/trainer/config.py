@@ -109,7 +109,18 @@ def default_config_path(profile: str | None = None) -> Path:
     return _REPO_ROOT / "config" / f"{p}.json"
 
 
+def _resolve_data_path(path: str) -> str:
+    """config 里 data/* 路径一律相对仓库根，与 datagen（仓库根 cwd）对齐。"""
+    p = Path(path)
+    if p.is_absolute():
+        return str(p)
+    return str(_REPO_ROOT / p)
+
+
 def _from_dict(raw: dict[str, Any]) -> Config:
+    datagen_raw = dict(raw["datagen"])
+    datagen_raw["samples_dir"] = _resolve_data_path(datagen_raw["samples_dir"])
+    datagen_raw["model_dir"] = _resolve_data_path(datagen_raw["model_dir"])
     return Config(
         device=raw["device"],
         total_samples=int(raw["total_samples"]),
@@ -117,7 +128,7 @@ def _from_dict(raw: dict[str, Any]) -> Config:
         network=NetworkConfig(**raw["network"]),
         mcts=MCTSConfig(**raw["mcts"]),
         train=TrainConfig(**raw["train"]),
-        datagen=DataGenConfig(**raw["datagen"]),
+        datagen=DataGenConfig(**datagen_raw),
     )
 
 

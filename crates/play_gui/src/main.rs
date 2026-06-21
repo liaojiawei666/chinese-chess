@@ -107,10 +107,6 @@ fn main() -> Result<()> {
 
 fn install_chinese_font(ctx: &egui::Context) {
     let candidates = [
-        r"C:\Windows\Fonts\NotoSansSC-VF.ttf",
-        r"C:\Windows\Fonts\simhei.ttf",
-        r"C:\Windows\Fonts\Deng.ttf",
-        r"C:\Windows\Fonts\simsunb.ttf",
         r"/System/Library/Fonts/PingFang.ttc",
         r"/System/Library/Fonts/STHeiti Light.ttc",
         r"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
