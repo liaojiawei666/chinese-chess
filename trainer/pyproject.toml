@@ -6,7 +6,8 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy<2",
     "torch>=2.11,<2.12",
-    "safetensors",
+    "onnx",
+    "onnxscript",
 ]
 
 [dependency-groups]
@@ -18,10 +19,21 @@ dev = [
 pythonpath = ["src"]
 testpaths = ["tests"]
 
-# hatchling 后端：可编辑安装用 .pth 指向 src/，不在源码树里生成 egg-info。
-[tool.hatch.build.targets.wheel]
-packages = ["src/trainer"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+# PyTorch index routing: CUDA 12.8 on Linux, CPU/MPS from PyPI on macOS.
+# For Linux CPU-only, override with: UV_TORCH_BACKEND=cpu uv sync
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]

@@ -1,0 +1,36 @@
+{
+  "device": "cuda",
+  "total_samples": 1200000,
+  "network": {
+    "hidden_channels": 128,
+    "residual_blocks": 10,
+    "policy_head_channels": 32,
+    "value_head_channels": 32,
+    "value_fc_hidden": 128
+  },
+  "mcts": {
+    "n_simulations": 128,
+    "c_puct": 1.5,
+    "dirichlet_alpha": 0.3,
+    "dirichlet_epsilon": 0.25,
+    "temperature_moves": 20
+  },
+  "train": {
+    "batch_size": 512,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "grad_clip_norm": 1.0,
+    "buffer_capacity": 60000,
+    "min_buffer_size": 10000,
+    "target_reuse": 2.0,
+    "weight_sync_interval": 50
+  },
+  "datagen": {
+    "samples_dir": "local/samples",
+    "models_dir": "local/models",
+    "num_parallel_games": 64,
+    "eval_batch_size": 256,
+    "inference_timeout_ms": 2.0,
+    "shard_size": 4096
+  }
+}

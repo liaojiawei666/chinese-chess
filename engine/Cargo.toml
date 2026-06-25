@@ -1,0 +1,12 @@
+[package]
+name = "engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rand = { workspace = true }
+rand_distr = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }

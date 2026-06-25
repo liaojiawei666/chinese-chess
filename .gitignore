@@ -35,7 +35,6 @@ flamegraph.svg
 # Environment variables (per-machine)
 .env
 
-# Legacy datagen workspace (migrated to crates/)
-/datagen/
-
 local
+
+config.local.json

@@ -1,0 +1,88 @@
+---
+alwaysApply: true
+---
+
+# 局面编码与动作编码
+
+## 1. 局面编码（encode_state）
+
+将历史局面编码为神经网络输入张量。
+
+### 输入
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `history` | `&[PieceIndexBoard; N_HISTORY]` | 最近 7 帧局面，按时间正序排列（index 0 最早，index 6 最新） |
+| `side_to_move` | `Color` | 当前行棋方 |
+| `no_capture_plies` | `u32` | 连续未吃子步数 |
+
+不足 7 帧时，由调用方在前部补全零棋盘（全 0 的 `PieceIndexBoard`）。
+
+### 输出
+
+`Vec<f32>`，逻辑形状 `[99, 10, 9]`（channels × height × width），按 CHW 展平。
+
+### 通道编排
+
+共 99 个通道（`INPUT_CHANNELS = N_HISTORY × PLANES_PER_FRAME + 1`）：
+
+| 通道范围 | 内容 |
+|---|---|
+| 0 - 48 | 行棋方 7 帧 × 7 种棋子 |
+| 49 - 97 | 非行棋方 7 帧 × 7 种棋子 |
+| 98 | 未吃子步数（归一化） |
+
+#### 行棋方 / 非行棋方（通道 0-97）
+
+每一方占 49 个通道 = 7 帧 × 7 种棋子。
+
+- **帧间排序**：时间越早通道越小，时间越晚通道越大
+  - 通道 0-6 = 最早帧（history[0]），通道 42-48 = 最新帧（history[6]）
+- **帧内排序**：按 `piece_index` 升序（King=1, Advisor=2, Elephant=3, Horse=4, Rook=5, Cannon=6, Pawn=7）
+- **平面值**：二值。`plane[y][x] = 1.0` 如果该位置有对应棋子，否则 `0.0`
+- **坐标翻转**：黑方视角时仅翻转 y 轴，输出平面 `(y, x)` 读取物理坐标 `(9-y, x)`；红方视角不变。x 轴左右对称无需翻转
+
+行棋方使用该方的 piece_index（红方 1-7，黑方 8-14），编码后统一映射到通道 0-48；非行棋方同理映射到 49-97。编码结果与具体颜色无关，仅取决于行棋视角。
+
+#### 未吃子步数（通道 98）
+
+整个平面填充同一个值：`no_capture_plies / NO_CAPTURE_DRAW_PLIES`（归一化到 [0, 1]）。
+
+---
+
+## 2. 动作编码（action_id ↔ Move）
+
+动作编码是**视角相关**的：同一个物理走法，红方视角和黑方视角产生不同的 action_id。
+
+### 编码空间
+
+`ACTION_SPACE_SIZE = SQUARE_COUNT × SQUARE_COUNT = 90 × 90 = 8100`
+
+### 坐标变换
+
+红方视角使用原始坐标，黑方视角翻转棋盘：
+
+```
+红方：vx = x,     vy = y
+黑方：vx = x,     vy = 9 - y
+```
+
+### 编码规则
+
+```
+view_index   = vy * BOARD_WIDTH + vx
+action_id    = from_view_index * SQUARE_COUNT + to_view_index
+```
+
+### 解码规则
+
+```
+from_view_index = action_id / SQUARE_COUNT
+to_view_index   = action_id % SQUARE_COUNT
+
+vx = view_index % BOARD_WIDTH
+vy = view_index / BOARD_WIDTH
+
+红方：x = vx,     y = vy
+黑方：x = vx,     y = 9 - vy
+```

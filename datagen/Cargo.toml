@@ -1,0 +1,26 @@
+[package]
+name = "datagen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "datagen"
+path = "src/main.rs"
+
+[dependencies]
+engine = { workspace = true }
+
+tokio = { version = "1", features = ["full"] }
+ort = { version = "2.0.0-rc.12", features = ["cuda"] }
+ndarray = "0.17"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+rand = { workspace = true }
+rand_distr = { workspace = true }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
