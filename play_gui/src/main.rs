@@ -65,7 +65,11 @@ fn main() -> Result<()> {
     );
 
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([760.0, 900.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([760.0, 900.0])
+            // WSLg 无 xdg-desktop-portal，客户端装饰(sctk-adwaita)查询配色超时后
+            // 会偶发把 Wayland 连接搞断导致崩溃；关掉装饰绕开这条路径。
+            .with_decorations(false),
         ..Default::default()
     };
 
@@ -86,6 +90,11 @@ fn install_chinese_font(ctx: &egui::Context) {
         "/System/Library/Fonts/STHeiti Light.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        // WSL：直接复用 Windows 自带中文字体（无需在 Linux 侧安装）
+        "/mnt/c/Windows/Fonts/simhei.ttf",
+        "/mnt/c/Windows/Fonts/msyh.ttc",
+        "/mnt/c/Windows/Fonts/simsun.ttc",
+        "/mnt/c/Windows/Fonts/NotoSansSC-VF.ttf",
     ];
     let Some(bytes) = candidates.iter().find_map(|p| std::fs::read(p).ok()) else {
         return;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import struct
 import time
 from typing import Iterator, Protocol
 
@@ -66,7 +67,10 @@ class SampleLoader:
             idle_polls += 1
             if self.idle_poll_limit is not None and idle_polls >= self.idle_poll_limit:
                 return True
-            logger.info("waiting for new shards... (idle poll #%d)", idle_polls)
+            # 降频：首次以及之后每 ~30s 提示一次，避免刷屏。
+            log_every = max(1, round(30.0 / max(self.poll_interval_s, 1e-3)))
+            if idle_polls == 1 or idle_polls % log_every == 0:
+                logger.info("waiting for new shards... (idle poll #%d)", idle_polls)
             time.sleep(self.poll_interval_s)
             return False
 
@@ -83,7 +87,14 @@ class SampleLoader:
                     continue
                 idle_polls = 0
                 for name in available:
-                    samples = self.source.read_shard(name)
+                    try:
+                        samples = self.source.read_shard(name)
+                    except (ValueError, OSError, struct.error) as e:
+                        # 理论上 datagen 已用原子写规避半截文件；这里兜底，
+                        # 避免坏/截断分片直接打挂训练，归档隔离后跳过。
+                        logger.warning("skip bad shard %s: %s", name, e)
+                        self.source.archive_shard(name)
+                        continue
                     self.buffer.add(samples)
                     self.source.archive_shard(name)
                     consumed += len(samples)

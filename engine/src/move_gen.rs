@@ -283,7 +283,10 @@ fn pseudo_attackers_of(
         }
         if let Some(p) = board.get_piece_at(horse_pos) {
             if p.color == attacker_color && p.kind == PieceKind::Horse {
-                let leg_pos = horse_pos.add(lx, ly);
+                // 蹩马腿在马走向目标格的一侧，即相对于马位朝目标方向的一格。
+                // 由于 horse_pos = target_pos + (hx, hy)，马走向目标的方向是 (-hx, -hy)，
+                // 故马腿偏移需取反 (-lx, -ly)，否则会指向远离目标的格子并可能越界。
+                let leg_pos = horse_pos.add(-lx, -ly);
                 if board.is_pos_empty(leg_pos) {
                     attackers.push((p, horse_pos));
                 }

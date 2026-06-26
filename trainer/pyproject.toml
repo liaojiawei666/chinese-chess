@@ -26,6 +26,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
+# 默认索引使用国内镜像（清华 TUNA），加速 numpy/onnx/onnxscript/pytest 等下载。
+[[tool.uv.index]]
+name = "tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
 # PyTorch index routing: CUDA 12.8 on Linux, CPU/MPS from PyPI on macOS.
 # For Linux CPU-only, override with: UV_TORCH_BACKEND=cpu uv sync
 [[tool.uv.index]]

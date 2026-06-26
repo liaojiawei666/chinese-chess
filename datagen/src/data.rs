@@ -68,10 +68,22 @@ pub fn write_shard(path: &Path, samples: &[TrainingSample]) -> Result<()> {
         buf.extend_from_slice(&sample.value.to_le_bytes());
     }
 
-    let mut file = std::fs::File::create(path)
-        .with_context(|| format!("failed to create shard: {}", path.display()))?;
-    file.write_all(&buf)?;
-    file.flush()?;
+    // 原子写：先写临时文件再 rename，避免 trainer 读到写了一半的 shard。
+    // 临时名带 .tmp 后缀，不匹配 trainer 的 `^shard_\d{6}\.bin$` 正则，不会被扫到。
+    let tmp_path = path.with_file_name(format!(
+        "{}.tmp",
+        path.file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "shard.bin".to_string())
+    ));
+    {
+        let mut file = std::fs::File::create(&tmp_path)
+            .with_context(|| format!("failed to create shard tmp: {}", tmp_path.display()))?;
+        file.write_all(&buf)?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&tmp_path, path)
+        .with_context(|| format!("failed to finalize shard: {}", path.display()))?;
     Ok(())
 }
 
